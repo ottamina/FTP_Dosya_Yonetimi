@@ -11,6 +11,7 @@ builder.Services.AddEndpointsApiExplorer();
 // 3. Bağımlılık Enjeksiyonu (Dependency Injection)
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<ILogService, LogService>();
+builder.Services.AddSingleton<AccessService>();
 builder.Services.AddSingleton<LocalFtpServer>();
 builder.Services.AddHostedService<LocalFtpServer>(provider => provider.GetRequiredService<LocalFtpServer>());
 builder.Services.AddScoped<FtpService>();

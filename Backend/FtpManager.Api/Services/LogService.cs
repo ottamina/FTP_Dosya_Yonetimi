@@ -33,7 +33,7 @@ namespace FtpManager.Api.Services
         private string GetJsonPath(DateTime date) => Path.Combine(_jsonDir, $"app-{date:yyyy-MM-dd}.jsonl");
         private string GetTextPath(DateTime date) => Path.Combine(_textDir, $"app-{date:yyyy-MM-dd}.log");
 
-        private void WriteLog(string operation, string message, string level, Exception? exception = null)
+        private void WriteLog(string operation, string message, string level, string? username = null, string? roleName = null, Exception? exception = null)
         {
             var now = DateTime.Now;
             var entry = new LogEntry
@@ -42,6 +42,8 @@ namespace FtpManager.Api.Services
                 Level = level,
                 Operation = operation,
                 Message = message,
+                Username = username,
+                RoleName = roleName,
                 Exception = exception != null ? $"{exception.Message} | StackTrace: {exception.StackTrace}" : null
             };
 
@@ -79,7 +81,7 @@ namespace FtpManager.Api.Services
                 // 3. Save to daily Plain Text .log File
                 try
                 {
-                    File.AppendAllText(textPath, $"[{entry.Timestamp}] [{entry.Level}] [{entry.Operation}] {entry.Message}{(entry.Exception != null ? $" | Exception: {entry.Exception}" : "")}{Environment.NewLine}");
+                    File.AppendAllText(textPath, $"[{entry.Timestamp}] [{entry.Level}] [{entry.Operation}] [{entry.Username ?? "anonymous"}] [{entry.RoleName ?? "-"}] {entry.Message}{(entry.Exception != null ? $" | Exception: {entry.Exception}" : "")}{Environment.NewLine}");
                 }
                 catch (Exception ex)
                 {
@@ -93,14 +95,29 @@ namespace FtpManager.Api.Services
             WriteLog(operation, message, "INFO");
         }
 
+        public void LogInfo(string operation, string message, string? username, string? roleName)
+        {
+            WriteLog(operation, message, "INFO", username, roleName);
+        }
+
         public void LogWarning(string operation, string message)
         {
             WriteLog(operation, message, "WARN");
         }
 
+        public void LogWarning(string operation, string message, string? username, string? roleName)
+        {
+            WriteLog(operation, message, "WARN", username, roleName);
+        }
+
         public void LogError(string operation, string message, Exception? ex = null)
         {
-            WriteLog(operation, message, "ERROR", ex);
+            WriteLog(operation, message, "ERROR", null, null, ex);
+        }
+
+        public void LogError(string operation, string message, string? username, string? roleName, Exception? ex = null)
+        {
+            WriteLog(operation, message, "ERROR", username, roleName, ex);
         }
 
         public Task<List<LogEntry>> GetDatabaseLogsAsync()

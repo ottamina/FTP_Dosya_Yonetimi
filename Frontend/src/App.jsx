@@ -6,12 +6,31 @@ import Sidebar from './components/Sidebar';
 import UploadPanel from './components/UploadPanel';
 import ServerManager from './components/ServerManager';
 import PreviewPanel from './components/PreviewPanel';
+import AccessLogin from './components/AccessLogin';
+import AccessManager from './components/AccessManager';
 
 const API_BASE_URL = 'http://localhost:5230/api/ftp';
+const ACCESS_API_BASE_URL = 'http://localhost:5230/api/access';
 
 function App() {
   // Navigation State
   const [activeView, setActiveView] = useState('explorer'); // 'explorer' or 'servers'
+  const [appToken, setAppToken] = useState(() => localStorage.getItem('ftpManagerToken') || '');
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem('ftpManagerUser');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+
+  // Access management state
+  const [accessTab, setAccessTab] = useState('users');
+  const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [permissions, setPermissions] = useState([]);
+  const [editingUserId, setEditingUserId] = useState(null);
+  const [editingRoleId, setEditingRoleId] = useState(null);
+  const [userForm, setUserForm] = useState({ fullName: '', username: '', password: '', roleId: '', isActive: true });
+  const [roleForm, setRoleForm] = useState({ name: '', description: '', permissions: [] });
 
   // Dynamic FTP Servers State
   const [ftpServers, setFtpServers] = useState([]);
@@ -81,8 +100,58 @@ function App() {
     setTimeout(() => setNotification(null), 4000);
   };
 
+  const hasPermission = useCallback((permission) => {
+    return currentUser?.permissions?.includes(permission);
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (appToken) {
+      axios.defaults.headers.common.Authorization = `Bearer ${appToken}`;
+    } else {
+      delete axios.defaults.headers.common.Authorization;
+    }
+  }, [appToken]);
+
+  const handleAppLogin = async (e) => {
+    e.preventDefault();
+    if (!loginForm.username || !loginForm.password) {
+      showToast('Lutfen kullanici adi ve sifre girin.', 'error');
+      return;
+    }
+
+    if (!hasPermission('files.upload')) {
+      showToast('Dosya yukleme yetkiniz yok.', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await axios.post(`${ACCESS_API_BASE_URL}/login`, loginForm);
+      setAppToken(response.data.token);
+      setCurrentUser(response.data.user);
+      localStorage.setItem('ftpManagerToken', response.data.token);
+      localStorage.setItem('ftpManagerUser', JSON.stringify(response.data.user));
+      setLoginForm({ username: '', password: '' });
+      showToast('Uygulama girisi basarili.');
+    } catch (error) {
+      showToast(`Giris basarisiz: ${error.response?.data || error.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    setAppToken('');
+    setCurrentUser(null);
+    setIsLoggedIn(false);
+    setActiveView('explorer');
+    localStorage.removeItem('ftpManagerToken');
+    localStorage.removeItem('ftpManagerUser');
+  };
+
   // Fetch servers from backend
   const fetchFtpServers = useCallback(async () => {
+    if (!appToken || !hasPermission('servers.view')) return;
     try {
       const response = await axios.get(`${API_BASE_URL}/servers`);
       setFtpServers(response.data);
@@ -98,10 +167,14 @@ function App() {
       console.error('FTP sunucuları yüklenemedi:', error);
       showToast('FTP sunucu listesi çekilemedi.', 'error');
     }
-  }, [selectedServerId]);
+  }, [appToken, hasPermission, selectedServerId]);
 
   // Fetch logs from backend
   const fetchLogs = useCallback(async (tab) => {
+    if (!appToken || !hasPermission('logs.view')) {
+      setLogs([]);
+      return;
+    }
     try {
       const endpoint = tab === 'database' ? 'logs/database' : 'logs/file';
       const response = await axios.get(`${API_BASE_URL}/${endpoint}`);
@@ -109,7 +182,31 @@ function App() {
     } catch (error) {
       console.error('Loglar çekilemedi:', error);
     }
-  }, []);
+  }, [appToken, hasPermission]);
+
+  const fetchAccessData = useCallback(async () => {
+    if (!appToken || !hasPermission('access.manage')) return;
+    const [usersResponse, rolesResponse, permissionsResponse] = await Promise.all([
+      axios.get(`${ACCESS_API_BASE_URL}/users`),
+      axios.get(`${ACCESS_API_BASE_URL}/roles`),
+      axios.get(`${ACCESS_API_BASE_URL}/permissions`)
+    ]);
+    setUsers(usersResponse.data);
+    setRoles(rolesResponse.data);
+    setPermissions(permissionsResponse.data);
+    setUserForm((prev) => ({ ...prev, roleId: prev.roleId || rolesResponse.data[0]?.id || '' }));
+  }, [appToken, hasPermission]);
+
+  const refreshCurrentUser = useCallback(async () => {
+    if (!appToken) return;
+    try {
+      const response = await axios.get(`${ACCESS_API_BASE_URL}/me`);
+      setCurrentUser(response.data);
+      localStorage.setItem('ftpManagerUser', JSON.stringify(response.data));
+    } catch {
+      handleLogout();
+    }
+  }, [appToken]);
 
   // Helper to add logs
   const addLog = useCallback((message, type = 'INFO', isDbLog = false) => {
@@ -142,13 +239,25 @@ function App() {
     }
   }, [addLog, selectedServerId, username, password]);
 
+  useEffect(() => {
+    if (!appToken) return;
+    refreshCurrentUser();
+  }, [appToken, refreshCurrentUser]);
+
   // Fetch initial logs and servers on mount
   useEffect(() => {
+    if (!appToken) return;
     const timer = setTimeout(() => {
       fetchFtpServers();
     }, 0);
     return () => clearTimeout(timer);
-  }, [fetchFtpServers]);
+  }, [appToken, fetchFtpServers]);
+
+  useEffect(() => {
+    if (activeView === 'access') {
+      fetchAccessData().catch((error) => showToast(`Yetki verileri alinamadi: ${error.response?.data || error.message}`, 'error'));
+    }
+  }, [activeView, fetchAccessData]);
 
   // Fetch logs when active tab changes
   useEffect(() => {
@@ -186,6 +295,21 @@ function App() {
     setPreviewFile(null);
     setPreviewData(null);
   }, []);
+
+  const getSelectedItem = useCallback(() => {
+    for (const items of Object.values(folderData)) {
+      const found = items.find((item) => item.fullName === selectedPath);
+      if (found) return found;
+    }
+    return selectedPath === '/' ? { fullName: '/', isFolder: true } : null;
+  }, [folderData, selectedPath]);
+
+  const getUploadTargetPath = useCallback(() => {
+    const selectedItem = getSelectedItem();
+    if (!selectedItem || selectedItem.isFolder) return selectedPath || '/';
+    const parentPath = selectedItem.fullName.substring(0, selectedItem.fullName.lastIndexOf('/')) || '/';
+    return parentPath;
+  }, [getSelectedItem, selectedPath]);
 
   // Server management functions
   const handleCreateServer = async (e) => {
@@ -296,7 +420,8 @@ function App() {
     const folderName = prompt('Oluşturmak istediğiniz klasörün adını giriniz:');
     if (!folderName) return;
 
-    const parentPath = selectedPath.endsWith('/') ? selectedPath : selectedPath + '/';
+    const targetDirectory = getUploadTargetPath();
+    const parentPath = targetDirectory.endsWith('/') ? targetDirectory : targetDirectory + '/';
     const newFolderPath = parentPath + folderName;
 
     setLoading(true);
@@ -312,7 +437,7 @@ function App() {
       addLog(`Klasör oluşturuldu: "${newFolderPath}"`, 'INFO', true);
       
       // Refresh parent folder
-      await fetchFolder(selectedPath);
+      await fetchFolder(targetDirectory);
     } catch (error) {
       showToast(`Klasör oluşturma hatası: ${error.response?.data?.message || error.message}`, 'error');
       addLog(`Klasör oluşturma hatası: ${error.message}`, 'ERROR', true);
@@ -493,6 +618,10 @@ function App() {
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragOver(false);
+    if (!hasPermission('files.upload')) {
+      showToast('Dosya yukleme yetkiniz yok.', 'error');
+      return;
+    }
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       setSelectedFile(e.dataTransfer.files[0]);
       addLog(`Dosya sürüklendi: "${e.dataTransfer.files[0].name}"`, 'INFO', false);
@@ -500,7 +629,11 @@ function App() {
   };
 
   const triggerFileInput = () => {
-    fileInputRef.current.click();
+    if (!hasPermission('files.upload')) {
+      showToast('Dosya yukleme yetkiniz yok.', 'error');
+      return;
+    }
+    fileInputRef.current?.click();
   };
 
   const handleUpload = async () => {
@@ -513,6 +646,7 @@ function App() {
 
     const CHUNK_UPLOAD_THRESHOLD = 1 * 1024 * 1024; // 1 MB for testing
     const CHUNK_SIZE = 512 * 1024; // 512 KB chunks for testing
+    const uploadTargetPath = getUploadTargetPath();
 
     if (selectedFile.size > CHUNK_UPLOAD_THRESHOLD) {
       // Chunked Upload
@@ -762,6 +896,83 @@ function App() {
     showToast('Bağlantı bilgileri kopyalandı.');
   };
 
+  const resetUserForm = () => {
+    setEditingUserId(null);
+    setUserForm({ fullName: '', username: '', password: '', roleId: roles[0]?.id || '', isActive: true });
+  };
+
+  const resetRoleForm = () => {
+    setEditingRoleId(null);
+    setRoleForm({ name: '', description: '', permissions: [] });
+  };
+
+  const saveUser = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingUserId) {
+        await axios.put(`${ACCESS_API_BASE_URL}/users/${editingUserId}`, userForm);
+        showToast('Uye guncellendi.');
+      } else {
+        await axios.post(`${ACCESS_API_BASE_URL}/users`, userForm);
+        showToast('Uye eklendi.');
+      }
+      resetUserForm();
+      await fetchAccessData();
+    } catch (error) {
+      showToast(`Uye kaydedilemedi: ${error.response?.data || error.message}`, 'error');
+    }
+  };
+
+  const saveRole = async (e) => {
+    e.preventDefault();
+    try {
+      if (editingRoleId) {
+        await axios.put(`${ACCESS_API_BASE_URL}/roles/${editingRoleId}`, roleForm);
+        showToast('Rol guncellendi.');
+      } else {
+        await axios.post(`${ACCESS_API_BASE_URL}/roles`, roleForm);
+        showToast('Rol eklendi.');
+      }
+      resetRoleForm();
+      await fetchAccessData();
+      await refreshCurrentUser();
+    } catch (error) {
+      showToast(`Rol kaydedilemedi: ${error.response?.data || error.message}`, 'error');
+    }
+  };
+
+  const deleteUser = async (id) => {
+    try {
+      await axios.delete(`${ACCESS_API_BASE_URL}/users/${id}`);
+      showToast('Uye silindi.');
+      await fetchAccessData();
+    } catch (error) {
+      showToast(`Uye silinemedi: ${error.response?.data || error.message}`, 'error');
+    }
+  };
+
+  const deleteRole = async (id) => {
+    try {
+      await axios.delete(`${ACCESS_API_BASE_URL}/roles/${id}`);
+      showToast('Rol silindi.');
+      await fetchAccessData();
+    } catch (error) {
+      showToast(`Rol silinemedi: ${error.response?.data || error.message}`, 'error');
+    }
+  };
+
+  if (!currentUser) {
+    return (
+      <AccessLogin
+        loginForm={loginForm}
+        setLoginForm={setLoginForm}
+        handleAppLogin={handleAppLogin}
+        loading={loading}
+        notification={notification}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 text-gray-800 font-sans">
       {/* Toast Notification */}
@@ -775,7 +986,13 @@ function App() {
       )}
 
       {/* Header bar */}
-      <Header activeView={activeView} setActiveView={setActiveView} />
+      <Header
+        activeView={activeView}
+        setActiveView={setActiveView}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        hasPermission={hasPermission}
+      />
 
       {/* Main Workspace content */}
       <div className="flex-1 flex overflow-hidden">
@@ -845,7 +1062,7 @@ function App() {
               onClose={handleClosePreview}
             />
           </>
-        ) : (
+        ) : activeView === 'servers' ? (
           /* ================= SERVERS VIEW ================= */
           <ServerManager
             newServerName={newServerName}
@@ -864,6 +1081,30 @@ function App() {
             handleStopServer={handleStopServer}
             handleDeleteServer={handleDeleteServer}
             copyServerDetails={copyServerDetails}
+            canManageServers={hasPermission('servers.manage')}
+            canViewCredentials={hasPermission('servers.credentials')}
+          />
+        ) : (
+          <AccessManager
+            users={users}
+            roles={roles}
+            permissions={permissions}
+            accessTab={accessTab}
+            setAccessTab={setAccessTab}
+            userForm={userForm}
+            setUserForm={setUserForm}
+            roleForm={roleForm}
+            setRoleForm={setRoleForm}
+            editingUserId={editingUserId}
+            editingRoleId={editingRoleId}
+            setEditingUserId={setEditingUserId}
+            setEditingRoleId={setEditingRoleId}
+            saveUser={saveUser}
+            saveRole={saveRole}
+            deleteUser={deleteUser}
+            deleteRole={deleteRole}
+            resetUserForm={resetUserForm}
+            resetRoleForm={resetRoleForm}
           />
         )}
       </div>

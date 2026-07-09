@@ -86,6 +86,8 @@ function LogViewer({ activeLogTab, setActiveLogTab, logs, expandedLogId, setExpa
                       timestamp: log.timestamp,
                       level: log.level,
                       operation: log.operation,
+                      username: log.username || null,
+                      roleName: log.roleName || null,
                       message: log.message,
                       exception: log.exception || null
                     }, null, 2)}

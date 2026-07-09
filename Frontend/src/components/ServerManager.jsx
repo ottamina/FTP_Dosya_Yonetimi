@@ -16,7 +16,9 @@ function ServerManager({
   handleStartServer,
   handleStopServer,
   handleDeleteServer,
-  copyServerDetails
+  copyServerDetails,
+  canManageServers = false,
+  canViewCredentials = false
 }) {
   return (
     <main className="flex-1 bg-gray-50 p-8 overflow-y-auto">
@@ -93,7 +95,8 @@ function ServerManager({
 
               <button 
                 type="submit"
-                className="mt-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg shadow transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer"
+                disabled={!canManageServers}
+                className="mt-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-2.5 rounded-lg shadow transition-all duration-150 flex items-center justify-center gap-2 cursor-pointer"
               >
                 <i className="fa-solid fa-play-circle"></i>
                 Sunucuyu Oluştur ve Başlat
@@ -157,11 +160,11 @@ function ServerManager({
                         </div>
                         <div>
                           <span className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Kullanıcı Adı</span>
-                          <span className="text-gray-700 font-semibold">{server.username}</span>
+                          <span className="text-gray-700 font-semibold">{canViewCredentials ? server.username : '******'}</span>
                         </div>
                         <div>
                           <span className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Şifre</span>
-                          <span className="text-gray-700 font-semibold">{server.password}</span>
+                          <span className="text-gray-700 font-semibold">{canViewCredentials ? server.password : '******'}</span>
                         </div>
                       </div>
 
@@ -170,7 +173,8 @@ function ServerManager({
                         <button 
                           type="button"
                           onClick={() => copyServerDetails(server)}
-                          className="flex-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          disabled={!canViewCredentials}
+                          className="flex-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer disabled:text-gray-300 disabled:cursor-not-allowed"
                         >
                           <i className="fa-regular fa-copy"></i>
                           Kopyala
@@ -180,7 +184,8 @@ function ServerManager({
                           <button 
                             type="button"
                             onClick={() => handleStopServer(server.id, server.name)}
-                            className="flex-1 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 text-yellow-700 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
+                            disabled={!canManageServers}
+                            className="flex-1 bg-yellow-50 hover:bg-yellow-100 border border-yellow-200 text-yellow-700 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer disabled:text-gray-300 disabled:bg-gray-100 disabled:border-gray-200 disabled:cursor-not-allowed"
                           >
                             <i className="fa-solid fa-stop"></i>
                             Durdur
@@ -189,7 +194,8 @@ function ServerManager({
                           <button 
                             type="button"
                             onClick={() => handleStartServer(server.id, server.name)}
-                            className="flex-1 bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
+                            disabled={!canManageServers}
+                            className="flex-1 bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer disabled:text-gray-300 disabled:bg-gray-100 disabled:border-gray-200 disabled:cursor-not-allowed"
                           >
                             <i className="fa-solid fa-play"></i>
                             Başlat
@@ -199,9 +205,9 @@ function ServerManager({
                         <button 
                           type="button"
                           onClick={() => handleDeleteServer(server.id, server.name)}
-                          disabled={server.id === 'default'}
+                          disabled={server.id === 'default' || !canManageServers}
                           className={`flex-1 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                            server.id === 'default'
+                            server.id === 'default' || !canManageServers
                               ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
                               : 'bg-red-50 hover:bg-red-100 border border-red-200 text-red-600'
                           }`}

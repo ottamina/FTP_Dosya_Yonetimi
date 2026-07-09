@@ -33,7 +33,8 @@ namespace FtpManager.Api.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                _customLogger.LogError("FTP_LIST", $"Dizin listelenirken hata: {path}", ex);
+                return StatusCode(500, $"Dizin listelenemedi: {ex.Message}");
             }
         }
 
@@ -45,17 +46,21 @@ namespace FtpManager.Api.Controllers
 
             try
             {
-                string remotePath = Path.Combine(currentPath, file.FileName).Replace("\\", "/");
+                string remotePath = Path.Combine(currentPath ?? "/", file.FileName).Replace("\\", "/");
                 using var stream = file.OpenReadStream();
                 var isUploaded = await _ftpService.UploadFileAsync(stream, remotePath);
 
                 if (isUploaded)
+                {
+                    _customLogger.LogInfo("DOSYA_YUKLE", $"Dosya doğrudan yüklendi: {remotePath}");
                     return Ok(new { message = "Dosya başarıyla yüklendi." });
+                }
                 
-                return StatusCode(500, "Dosya yüklenemedi.");
+                return StatusCode(500, "Dosya FTP sunucusuna yazılırken başarısız oldu.");
             }
             catch (Exception ex)
             {
+                _customLogger.LogError("DOSYA_YUKLE", $"Standart yükleme hatası: {file.FileName}", ex);
                 return StatusCode(500, ex.Message);
             }
         }
@@ -83,12 +88,12 @@ namespace FtpManager.Api.Controllers
                 }
 
                 var chunkFilePath = Path.Combine(tempDirectory, $"{chunkIndex}.part");
-                using (var chunkStream = new FileStream(chunkFilePath, FileMode.Create, FileAccess.Write))
+                using (var chunkStream = new FileStream(chunkFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     await file.CopyToAsync(chunkStream);
                 }
 
-                // Check if all chunks have been received
+                // Tüm parçaların gelip gelmediğini kontrol etme
                 bool allChunksReceived = true;
                 for (int i = 0; i < totalChunks; i++)
                 {
@@ -106,59 +111,60 @@ namespace FtpManager.Api.Controllers
 
                     try
                     {
-                        // Merge chunks into one file
-                        using (var destinationStream = new FileStream(finalTempFile, FileMode.Create, FileAccess.Write))
+                        // Parçaları güvenli bir şekilde birleştir
+                        using (var destinationStream = new FileStream(finalTempFile, FileMode.Create, FileAccess.Write, FileShare.None))
                         {
                             for (int i = 0; i < totalChunks; i++)
                             {
                                 var partPath = Path.Combine(tempDirectory, $"{i}.part");
-                                using (var partStream = new FileStream(partPath, FileMode.Open, FileAccess.Read))
+                                using (var partStream = new FileStream(partPath, FileMode.Open, FileAccess.Read, FileShare.Read))
                                 {
                                     await partStream.CopyToAsync(destinationStream);
                                 }
                             }
                         }
 
-                        // Upload merged file to FTP
-                        string remotePath = Path.Combine(currentPath, fileName).Replace("\\", "/");
-                        using (var mergedStream = new FileStream(finalTempFile, FileMode.Open, FileAccess.Read))
+                        // FTP'ye yükle
+                        string remotePath = Path.Combine(currentPath ?? "/", fileName).Replace("\\", "/");
+                        using (var mergedStream = new FileStream(finalTempFile, FileMode.Open, FileAccess.Read, FileShare.Read))
                         {
                             isUploaded = await _ftpService.UploadFileAsync(mergedStream, remotePath);
                         }
                     }
+                    catch (Exception ex)
+                    {
+                        _customLogger.LogError("CHUNK_BIRLESTIRME", $"Dosya birleştirilirken veya FTP'ye aktarılırken hata oluştu. ID: {uploadId}", ex);
+                        throw;
+                    }
                     finally
                     {
-                        // Clean up
+                        // Geçici dosyaları temizleme
                         try
                         {
-                            if (Directory.Exists(tempDirectory))
-                            {
-                                Directory.Delete(tempDirectory, true);
-                            }
-                            if (System.IO.File.Exists(finalTempFile))
-                            {
-                                System.IO.File.Delete(finalTempFile);
-                            }
+                            if (Directory.Exists(tempDirectory)) Directory.Delete(tempDirectory, true);
+                            if (System.IO.File.Exists(finalTempFile)) System.IO.File.Delete(finalTempFile);
                         }
                         catch (Exception ex)
                         {
-                            _customLogger.LogError("DOSYA_YUKLE", $"Geçici dosyalar silinirken hata oluştu: {ex.Message}", ex);
+                            _customLogger.LogError("TEMIZLIK_HATASI", $"Geçici dosyalar silinemedi: {ex.Message}", ex);
                         }
                     }
 
                     if (isUploaded)
                     {
+                        _customLogger.LogInfo("DOSYA_YUKLE", $"Büyük dosya parçalı olarak başarıyla yüklendi: {fileName}");
                         return Ok(new { message = "Dosya başarıyla birleştirildi ve FTP'ye yüklendi." });
                     }
                     
-                    return StatusCode(500, "Dosya FTP sunucusuna yüklenemedi.");
+                    return StatusCode(500, "Dosya birleştirildi fakat FTP sunucusuna aktarılamadı.");
                 }
 
                 return Ok(new { message = $"Chunk {chunkIndex + 1}/{totalChunks} başarıyla yüklendi." });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                _customLogger.LogError("CHUNK_YUKLE", $"Chunk yükleme hatası Index: {chunkIndex}, ID: {uploadId}", ex);
+                return StatusCode(500, $"Parça yükleme başarısız: {ex.Message}");
             }
         }
 
@@ -173,20 +179,15 @@ namespace FtpManager.Api.Controllers
                 var tempDirectory = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "temp", uploadId);
                 var finalTempFile = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "temp", $"{uploadId}_merged.tmp");
 
-                if (Directory.Exists(tempDirectory))
-                {
-                    Directory.Delete(tempDirectory, true);
-                }
-                if (System.IO.File.Exists(finalTempFile))
-                {
-                    System.IO.File.Delete(finalTempFile);
-                }
+                if (Directory.Exists(tempDirectory)) Directory.Delete(tempDirectory, true);
+                if (System.IO.File.Exists(finalTempFile)) System.IO.File.Delete(finalTempFile);
 
-                _customLogger.LogWarning("DOSYA_YUKLE", $"Parçalı yükleme iptal edildi ve geçici dosyalar temizlendi. UploadId: {uploadId}");
-                return Ok(new { message = "Yükleme başarıyla iptal edildi ve geçici dosyalar temizlendi." });
+                _customLogger.LogWarning("DOSYA_YUKLE", $"Parçalı yükleme iptal edildi. UploadId: {uploadId}");
+                return Ok(new { message = "Yükleme başarıyla iptal edildi." });
             }
             catch (Exception ex)
             {
+                _customLogger.LogError("IPTAL_HATASI", $"İptal işlemi sırasında hata: {uploadId}", ex);
                 return StatusCode(500, $"İptal işlemi sırasında hata oluştu: {ex.Message}");
             }
         }
@@ -199,15 +200,24 @@ namespace FtpManager.Api.Controllers
 
             try
             {
-                var success = await _ftpService.RenameAsync(sourcePath, targetPath);
+                // URL Decode işlemi (Özel karakterlerin doğru çözümlenmesi için zorunlu)
+                string decodedSource = Uri.UnescapeDataString(sourcePath);
+                string decodedTarget = Uri.UnescapeDataString(targetPath);
+
+                var success = await _ftpService.RenameAsync(decodedSource, decodedTarget);
                 if (success)
+                {
+                    _customLogger.LogInfo("DOSYA_TASIMA", $"Öğe taşındı: {decodedSource} -> {decodedTarget}");
                     return Ok(new { message = "Öğe başarıyla taşındı/yeniden adlandırıldı." });
+                }
                 
-                return StatusCode(500, "Öğe taşınamadı.");
+                _customLogger.LogWarning("DOSYA_TASIMA", $"Öğe taşınamadı (Sunucu reddetti): {decodedSource}");
+                return StatusCode(500, "FTP Sunucusu taşıma işlemini gerçekleştiremedi. Yol doğruluğunu kontrol edin.");
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ex.Message);
+                _customLogger.LogError("DOSYA_TASIMA", $"Taşıma esnasında kritik hata. Kaynak: {sourcePath}", ex);
+                return StatusCode(500, $"Yeniden adlandırma hatası: {ex.Message}");
             }
         }
 
@@ -216,12 +226,14 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
-                var stream = await _ftpService.DownloadFileAsync(remotePath);
-                string fileName = Path.GetFileName(remotePath);
+                string decodedPath = Uri.UnescapeDataString(remotePath);
+                var stream = await _ftpService.DownloadFileAsync(decodedPath);
+                string fileName = Path.GetFileName(decodedPath);
                 return File(stream, "application/octet-stream", fileName);
             }
             catch (Exception ex)
             {
+                _customLogger.LogError("DOSYA_INDIR", $"İndirme hatası: {remotePath}", ex);
                 return StatusCode(500, ex.Message);
             }
         }
@@ -231,11 +243,14 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
-                await _ftpService.DeleteItemAsync(path, isFolder);
+                string decodedPath = Uri.UnescapeDataString(path);
+                await _ftpService.DeleteItemAsync(decodedPath, isFolder);
+                _customLogger.LogInfo("DOSYA_SIL", $"Öğe silindi: {decodedPath} (Klasör mü: {isFolder})");
                 return Ok(new { message = "Öge başarıyla silindi." });
             }
             catch (Exception ex)
             {
+                _customLogger.LogError("DOSYA_SIL", $"Silme hatası: {path}", ex);
                 return StatusCode(500, ex.Message);
             }
         }
@@ -245,11 +260,13 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
-                await _ftpService.CreateDirectoryAsync(path);
+                string decodedPath = Uri.UnescapeDataString(path);
+                await _ftpService.CreateDirectoryAsync(decodedPath);
                 return Ok(new { message = "Klasör başarıyla oluşturuldu." });
             }
             catch (Exception ex)
             {
+                _customLogger.LogError("KLASOR_OLUSTUR", $"Klasör oluşturulamadı: {path}", ex);
                 return StatusCode(500, ex.Message);
             }
         }
@@ -265,7 +282,7 @@ namespace FtpManager.Api.Controllers
                     return BadRequest("Bağlantı başarısız. Kullanıcı adı veya şifre hatalı.");
                 }
 
-                _customLogger.LogInfo("KULLANICI_GIRIS", $"Kullanici basariyla giris yapti: {username} (Isim: Yonetici, Rol: Admin)");
+                _customLogger.LogInfo("KULLANICI_GIRIS", $"Kullanici basariyla giris yapti: {username}");
                 return Ok(new { message = "Giriş başarılı." });
             }
             catch (Exception ex)
