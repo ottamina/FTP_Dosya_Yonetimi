@@ -1,0 +1,6 @@
+@FtpManager.Api_HostAddress = http://localhost:5230
+
+GET {{FtpManager.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
