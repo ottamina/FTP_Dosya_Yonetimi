@@ -12,6 +12,7 @@ function UploadPanel({
   fileInputRef,
   handleFileChange,
   handleUpload,
+  // eslint-disable-next-line no-unused-vars
   selectedPath,
   getFileIcon,
   activeLogTab,
@@ -104,14 +105,15 @@ function UploadPanel({
           </div>
         )}
       </div>
-
-      {/* Target directory warning helper */}
+{/*
+       Target directory warning helper
       {selectedPath !== '/' && (
         <div className="mb-6 p-3 bg-blue-50 rounded-lg max-w-2xl text-xs text-blue-800 border border-blue-100 flex items-center gap-2">
           <i className="fa-solid fa-circle-info"></i>
           <span>Dosyalar seçtiğiniz <strong>{selectedPath}</strong> klasörünün içerisine yüklenecektir.</span>
         </div>
       )}
+*/}
 
       {/* Logs Section */}
       <LogViewer

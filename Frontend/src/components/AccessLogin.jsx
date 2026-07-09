@@ -51,9 +51,7 @@ function AccessLogin({ loginForm, setLoginForm, handleAppLogin, loading, notific
           Giris Yap
         </button>
 
-        <div className="text-[11px] text-gray-400 border-t border-gray-100 pt-3 leading-relaxed">
-          Ilk kurulum kullanicisi: <strong>admin</strong> / <strong>admin123</strong>. Canli kullanimdan once sifreyi degistirin.
-        </div>
+        
       </form>
     </div>
   );

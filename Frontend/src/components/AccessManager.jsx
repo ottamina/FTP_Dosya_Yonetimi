@@ -46,7 +46,7 @@ function AccessManager({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-extrabold text-gray-900">Yetki Yonetimi</h2>
-            <p className="text-sm text-gray-500 mt-1">Uyeler, roller ve erisim izinleri bu panelden yonetilir.</p>
+            
           </div>
           <div className="flex gap-2 bg-white border border-gray-200 rounded-lg p-1">
             {[

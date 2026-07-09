@@ -24,10 +24,10 @@ function ConfirmModal({ confirmModal, setConfirmModal }) {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                 </span>
-                Çift Aşamalı Doğrulama (Adım 2/2)
+                
               </span>
               <span>
-                Bu işlemi gerçekleştirmek istediğinize <strong>kesinlikle emin misiniz</strong>? (Düğmelerin yerleri değiştirilmiştir!)
+                Bu işlemi gerçekleştirmek istediğinize <strong>kesinlikle emin misiniz</strong>?
               </span>
             </div>
           )}
