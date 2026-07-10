@@ -53,7 +53,7 @@ namespace FtpManager.Api.Controllers
             try
             {
                 _accessService.RequirePermission(HttpContext, PermissionKeys.AccessManage);
-                return Ok(PermissionKeys.All);
+                return Ok(PermissionKeys.Definitions);
             }
             catch (Exception ex)
             {

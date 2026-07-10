@@ -5,6 +5,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using FtpManager.Api.Models;
@@ -146,7 +149,8 @@ namespace FtpManager.Api.Services
                             Username = config.Username,
                             Password = config.Password,
                             IsActive = config.IsActive,
-                            IsRunning = hasInstance && instance != null && instance.IsRunning
+                            IsRunning = hasInstance && instance != null && instance.IsRunning,
+                            HostWarning = GetHostWarning(config.Host)
                         });
                     }
                 }
@@ -174,7 +178,8 @@ namespace FtpManager.Api.Services
                         Username = config.Username,
                         Password = config.Password,
                         IsActive = config.IsActive,
-                        IsRunning = hasInstance && instance != null && instance.IsRunning
+                        IsRunning = hasInstance && instance != null && instance.IsRunning,
+                        HostWarning = GetHostWarning(config.Host)
                     };
                 }
             }
@@ -184,9 +189,16 @@ namespace FtpManager.Api.Services
         {
             lock (_lock)
             {
+                newConfig.Host = (newConfig.Host ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(newConfig.Host))
+                {
+                    throw new InvalidOperationException("Host/IP boş olamaz.");
+                }
+
                 using (var db = new LiteDatabase(_dbFilePath))
                 {
                     var col = db.GetCollection<FtpServerConfig>("servers");
+                    ValidateHost(newConfig.Host);
                     
                     // Ensure port is not already used
                     if (col.Exists(c => c.Port == newConfig.Port))
@@ -211,6 +223,11 @@ namespace FtpManager.Api.Services
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "Failed to start newly added FTP server '{Name}' on port {Port}", newConfig.Name, newConfig.Port);
+                        using (var db = new LiteDatabase(_dbFilePath))
+                        {
+                            db.GetCollection<FtpServerConfig>("servers").Delete(newConfig.Id);
+                        }
+                        throw new InvalidOperationException($"FTP sunucusu başlatılamadı: {ex.Message}", ex);
                     }
                 }
 
@@ -260,6 +277,7 @@ namespace FtpManager.Api.Services
                     var col = db.GetCollection<FtpServerConfig>("servers");
                     var config = col.FindOne(c => c.Id == id);
                     if (config == null) throw new KeyNotFoundException("Server not found.");
+                    ValidateHost(config.Host);
 
                     if (_instances.TryGetValue(id, out var existing) && existing.IsRunning)
                     {
@@ -299,5 +317,127 @@ namespace FtpManager.Api.Services
                 await instance.StopAsync();
             }
         }
+
+        private static HostValidationResult ValidateHost(string host)
+        {
+            var addresses = ResolveHostAddresses(host);
+            if (addresses.Length == 0)
+            {
+                throw new InvalidOperationException($"Host çözümlenemedi: {host}.");
+            }
+
+            var invalidAddress = Array.Find(addresses, IsInvalidAdvertisedAddress);
+            if (invalidAddress != null)
+            {
+                throw new InvalidOperationException(
+                    $"Bu IP FTP hostu olarak kullanılamaz: {invalidAddress}. Bu bilgisayara atanmış gerçek bir IP, 127.0.0.1, LAN IP veya DNS ile bu makineye yönlenen bir domain girin.");
+            }
+
+            var localAddresses = GetLocalIPv4Addresses();
+            var hasLocalAddress = Array.Exists(addresses, address =>
+                Array.Exists(localAddresses, localAddress => localAddress.Equals(address)) || IPAddress.IsLoopback(address));
+            var hasPrivateAddress = Array.Exists(addresses, IsPrivateIPv4Address);
+            var hasPublicAddress = Array.Exists(addresses, address => address.AddressFamily == AddressFamily.InterNetwork && !IsPrivateIPv4Address(address) && !IPAddress.IsLoopback(address));
+
+            if (hasLocalAddress)
+            {
+                return new HostValidationResult(null);
+            }
+
+            if (hasPrivateAddress)
+            {
+                throw new InvalidOperationException(
+                    $"Host bu bilgisayara ait görünmüyor: {host}. Aynı ağda kullanılacaksa bu makinenin gerçek LAN IP adresini girin. Bu bilgisayardaki IP'ler: {string.Join(", ", localAddresses)}");
+            }
+
+            if (hasPublicAddress)
+            {
+                throw new InvalidOperationException(
+                    $"Host public bir adrese gidiyor ve bu local FTP sunucusu icin bu bilgisayara ait gorunmuyor: {host}. Local kullanim icin 127.0.0.1, bu makinenin LAN IP'si veya bu makineye cozumlenen hostname girin.");
+            }
+
+            return new HostValidationResult("Host çözüldü, ancak bu bilgisayara ait olduğu doğrulanamadı.");
+        }
+
+        private static string? GetHostWarning(string host)
+        {
+            try
+            {
+                return ValidateHost(host).Warning;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        private static IPAddress[] ResolveHostAddresses(string host)
+        {
+            if (IPAddress.TryParse(host, out var parsedAddress))
+            {
+                return new[] { parsedAddress };
+            }
+
+            try
+            {
+                return Array.FindAll(Dns.GetHostAddresses(host), address => address.AddressFamily == AddressFamily.InterNetwork);
+            }
+            catch (SocketException ex)
+            {
+                throw new InvalidOperationException($"Host çözümlenemedi: {host}. DNS kaydını veya hosts dosyasını kontrol edin.", ex);
+            }
+        }
+
+        private static IPAddress[] GetLocalIPv4Addresses()
+        {
+            var addresses = new List<IPAddress> { IPAddress.Loopback };
+            foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (networkInterface.OperationalStatus != OperationalStatus.Up)
+                {
+                    continue;
+                }
+
+                foreach (var unicastAddress in networkInterface.GetIPProperties().UnicastAddresses)
+                {
+                    if (unicastAddress.Address.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        addresses.Add(unicastAddress.Address);
+                    }
+                }
+            }
+
+            return addresses.ToArray();
+        }
+
+        private static bool IsInvalidAdvertisedAddress(IPAddress address)
+        {
+            if (address.AddressFamily != AddressFamily.InterNetwork)
+            {
+                return true;
+            }
+
+            var bytes = address.GetAddressBytes();
+            return bytes[0] == 0 ||
+                   bytes[0] >= 224 ||
+                   bytes[0] == 169 && bytes[1] == 254 ||
+                   address.Equals(IPAddress.Broadcast) ||
+                   address.Equals(IPAddress.Any);
+        }
+
+        private static bool IsPrivateIPv4Address(IPAddress address)
+        {
+            if (address.AddressFamily != AddressFamily.InterNetwork)
+            {
+                return false;
+            }
+
+            var bytes = address.GetAddressBytes();
+            return bytes[0] == 10 ||
+                   bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31 ||
+                   bytes[0] == 192 && bytes[1] == 168;
+        }
+
+        private sealed record HostValidationResult(string? Warning);
     }
 }

@@ -1,15 +1,3 @@
-const permissionLabels = {
-  'files.view': 'Dosyalari goruntule',
-  'files.upload': 'Dosya yukle',
-  'files.download': 'Dosya indir',
-  'files.modify': 'Dosya/klasor degistir ve sil',
-  'servers.view': 'FTP sunucularini gor',
-  'servers.manage': 'FTP sunucusu kur, baslat, durdur, sil',
-  'servers.credentials': 'FTP kullanici adi ve sifrelerini gor',
-  'logs.view': 'Loglari gor',
-  'access.manage': 'Uyeleri, rolleri ve erisimleri yonet'
-};
-
 function AccessManager({
   users,
   roles,
@@ -31,12 +19,15 @@ function AccessManager({
   resetUserForm,
   resetRoleForm
 }) {
-  const togglePermission = (permission) => {
+  const permissionLabel = (permissionKey) =>
+    permissions.find((permission) => permission.key === permissionKey)?.label || permissionKey;
+
+  const togglePermission = (permissionKey) => {
     setRoleForm((prev) => ({
       ...prev,
-      permissions: prev.permissions.includes(permission)
-        ? prev.permissions.filter((item) => item !== permission)
-        : [...prev.permissions, permission]
+      permissions: prev.permissions.includes(permissionKey)
+        ? prev.permissions.filter((item) => item !== permissionKey)
+        : [...prev.permissions, permissionKey]
     }));
   };
 
@@ -51,8 +42,7 @@ function AccessManager({
           <div className="flex gap-2 bg-white border border-gray-200 rounded-lg p-1">
             {[
               ['users', 'Uyeler', 'fa-users'],
-              ['roles', 'Roller', 'fa-id-badge'],
-              ['access', 'Erisim', 'fa-key']
+              ['roles', 'Roller', 'fa-id-badge']
             ].map(([key, label, icon]) => (
               <button
                 key={key}
@@ -105,7 +95,7 @@ function AccessManager({
           </div>
         )}
 
-        {(accessTab === 'roles' || accessTab === 'access') && (
+        {accessTab === 'roles' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <form onSubmit={saveRole} className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm flex flex-col gap-4 h-fit">
               <h3 className="text-lg font-bold text-gray-800">{editingRoleId ? 'Rolu Guncelle' : 'Yeni Rol'}</h3>
@@ -113,11 +103,11 @@ function AccessManager({
               <textarea placeholder="Aciklama" value={roleForm.description} onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))} className="border border-gray-200 rounded px-3 py-2 text-sm min-h-20" />
               <div className="grid grid-cols-1 gap-2">
                 {permissions.map((permission) => (
-                  <label key={permission} className="flex items-start gap-2 text-sm text-gray-700 border border-gray-100 rounded p-2">
-                    <input type="checkbox" checked={roleForm.permissions.includes(permission)} disabled={editingRoleId === 'admin'} onChange={() => togglePermission(permission)} className="mt-1" />
+                  <label key={permission.key} className="flex items-start gap-2 text-sm text-gray-700 border border-gray-100 rounded p-2">
+                    <input type="checkbox" checked={roleForm.permissions.includes(permission.key)} disabled={editingRoleId === 'admin'} onChange={() => togglePermission(permission.key)} className="mt-1" />
                     <span>
-                      <strong>{permissionLabels[permission] || permission}</strong>
-                      <span className="block text-[11px] text-gray-400">{permission}</span>
+                      <strong>{permission.label}</strong>
+                      <span className="block text-[11px] text-gray-400">{permission.key}</span>
                     </span>
                   </label>
                 ))}
@@ -139,7 +129,7 @@ function AccessManager({
                     {role.isSystem && <span className="h-fit text-[10px] bg-blue-50 text-blue-700 border border-blue-100 rounded px-2 py-1 font-bold">Sistem</span>}
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {role.permissions.map((permission) => <span key={permission} className="text-[10px] bg-gray-100 text-gray-600 rounded px-2 py-1 font-semibold">{permissionLabels[permission] || permission}</span>)}
+                    {role.permissions.map((permission) => <span key={permission} className="text-[10px] bg-gray-100 text-gray-600 rounded px-2 py-1 font-semibold">{permissionLabel(permission)}</span>)}
                   </div>
                   <div className="flex gap-2 mt-auto">
                     <button type="button" onClick={() => { setEditingRoleId(role.id); setRoleForm({ name: role.name, description: role.description || '', permissions: role.permissions || [] }); }} className="flex-1 bg-gray-100 text-gray-700 rounded py-1.5 text-xs font-bold">Duzenle</button>

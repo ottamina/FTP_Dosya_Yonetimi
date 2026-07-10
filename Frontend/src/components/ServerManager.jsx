@@ -59,6 +59,9 @@ function ServerManager({
                   onChange={(e) => setNewServerHost(e.target.value)}
                   className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white font-medium"
                 />
+                <p className="mt-1.5 text-xs leading-5 text-gray-500">
+                  Local FTP icin bu host bu bilgisayara ait olmalidir: 127.0.0.1, makinenin LAN IP'si veya bu makineye cozumlenen local hostname.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Port Numarası</label>
@@ -165,6 +168,13 @@ function ServerManager({
                           <span className="text-gray-700 font-semibold">{canViewCredentials ? server.password : '******'}</span>
                         </div>
                       </div>
+
+                      {server.hostWarning && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 font-semibold text-amber-800">
+                          <i className="fa-solid fa-triangle-exclamation mr-1.5"></i>
+                          {server.hostWarning}
+                        </div>
+                      )}
 
                       {/* Action buttons */}
                       <div className="flex gap-2.5 pt-1">

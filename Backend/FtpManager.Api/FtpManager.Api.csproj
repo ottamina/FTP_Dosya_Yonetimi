@@ -7,9 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="uploads\**\*.cs" />
     <PackageReference Include="FluentFTP" Version="54.2.0" />
     <PackageReference Include="LiteDB" Version="5.0.21" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
   </ItemGroup>
 
 </Project>

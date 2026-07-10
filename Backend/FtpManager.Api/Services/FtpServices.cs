@@ -28,7 +28,10 @@ namespace FtpManager.Api.Services
                     var config = localFtpServer.GetServer(serverId);
                     if (config != null)
                     {
-                        _host = config.Host;
+                        // Managed FTP servers run inside this API process. Use loopback for
+                        // in-app file operations so public DNS/NAT hairpin rules do not block
+                        // uploads while the configured host remains the external advertised host.
+                        _host = "127.0.0.1";
                         _port = config.Port;
                         _username = config.Username;
                         _password = config.Password;
@@ -68,6 +71,7 @@ namespace FtpManager.Api.Services
         private async Task<AsyncFtpClient> CreateClientAsync()
         {
             var client = new AsyncFtpClient(_host, _username, _password, _port);
+            client.Config.DataConnectionType = FtpDataConnectionType.AutoPassive;
             await client.Connect();
             return client;
         }
@@ -205,7 +209,6 @@ namespace FtpManager.Api.Services
             try
             {
                 using var client = await CreateClientAsync();
-                await client.Connect();
                 await client.Disconnect();
                 return true;
             }

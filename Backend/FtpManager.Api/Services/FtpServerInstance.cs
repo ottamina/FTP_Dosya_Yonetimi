@@ -20,6 +20,8 @@ namespace FtpManager.Api.Services
         private CancellationTokenSource? _cts;
         private Task? _runTask;
         private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
+        private const int PassivePortMin = 50000;
+        private const int PassivePortMax = 51000;
 
         public FtpServerConfig Config => _config;
         public bool IsRunning => _runTask != null && !_runTask.IsCompleted;
@@ -132,6 +134,7 @@ namespace FtpManager.Api.Services
 
             TcpListener? passiveListener = null;
             TcpClient? passiveClient = null;
+            IPEndPoint? activeDataEndpoint = null;
 
             try
             {
@@ -192,6 +195,7 @@ namespace FtpManager.Api.Services
                     {
                         await writer.WriteLineAsync("211-Features:");
                         await writer.WriteLineAsync(" UTF8");
+                        await writer.WriteLineAsync(" EPSV");
                         await writer.WriteLineAsync("211 End");
                     }
                     else if (cmd == "OPTS")
@@ -213,19 +217,67 @@ namespace FtpManager.Api.Services
                             passiveListener.Stop();
                             passiveListener = null;
                         }
+                        activeDataEndpoint = null;
 
-                        passiveListener = new TcpListener(IPAddress.Loopback, 0);
-                        passiveListener.Start();
+                        passiveListener = CreateStartedPassiveListener();
                         int passivePort = ((IPEndPoint)passiveListener.LocalEndpoint).Port;
 
                         byte p1 = (byte)(passivePort / 256);
                         byte p2 = (byte)(passivePort % 256);
 
-                        await writer.WriteLineAsync($"227 Entering Passive Mode (127,0,0,1,{p1},{p2})");
+                        // PASV yanıtında sunucunun gerçek yapılandırılmış host adresini bildir.
+                        // Sabit "127.0.0.1" kullanmak, Host farklı ayarlandığında (örn. 127.100.2.2)
+                        // istemcinin veri kanalını yanlış adrese açmaya çalışmasına ve
+                        // listeleme/yükleme işlemlerinin başarısız olmasına neden oluyordu.
+                        var localAddress = ((IPEndPoint)client.Client.LocalEndPoint!).Address;
+                        var pasvAddress = ResolvePassiveAddress(localAddress);
+                        var addressBytes = pasvAddress.GetAddressBytes();
+
+                        await writer.WriteLineAsync($"227 Entering Passive Mode ({addressBytes[0]},{addressBytes[1]},{addressBytes[2]},{addressBytes[3]},{p1},{p2})");
+                    }
+                    else if (cmd == "EPSV")
+                    {
+                        if (passiveListener != null)
+                        {
+                            passiveListener.Stop();
+                            passiveListener = null;
+                        }
+                        activeDataEndpoint = null;
+
+                        passiveListener = CreateStartedPassiveListener();
+                        int passivePort = ((IPEndPoint)passiveListener.LocalEndpoint).Port;
+
+                        await writer.WriteLineAsync($"229 Entering Extended Passive Mode (|||{passivePort}|)");
                     }
                     else if (cmd == "PORT")
                     {
-                        await writer.WriteLineAsync("502 Active mode not supported, use PASV");
+                        try
+                        {
+                            activeDataEndpoint = ParsePortEndpoint(args);
+                            passiveListener?.Stop();
+                            passiveListener = null;
+                            await writer.WriteLineAsync("200 PORT command successful");
+                        }
+                        catch
+                        {
+                            activeDataEndpoint = null;
+                            await writer.WriteLineAsync("501 Invalid PORT parameters");
+                        }
+                    }
+                    else if (cmd == "EPRT")
+                    {
+                        try
+                        {
+                            activeDataEndpoint = ParseEprtEndpoint(args);
+                            passiveListener?.Stop();
+                            passiveListener = null;
+                            await writer.WriteLineAsync("200 EPRT command successful");
+                        }
+                        catch
+                        {
+                            activeDataEndpoint = null;
+                            await writer.WriteLineAsync("501 Invalid EPRT parameters");
+                        }
                     }
                     else if (cmd == "CWD")
                     {
@@ -425,9 +477,9 @@ namespace FtpManager.Api.Services
                     }
                     else if (cmd == "LIST" || cmd == "NLST" || cmd == "MLSD")
                     {
-                        if (passiveListener == null)
+                        if (passiveListener == null && activeDataEndpoint == null)
                         {
-                            await writer.WriteLineAsync("425 Use PASV first");
+                            await writer.WriteLineAsync("425 Use PASV/EPSV or PORT/EPRT first");
                             continue;
                         }
 
@@ -438,7 +490,7 @@ namespace FtpManager.Api.Services
                             using var cts = new CancellationTokenSource(5000);
                             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-                            passiveClient = await passiveListener.AcceptTcpClientAsync(linkedCts.Token);
+                            passiveClient = await OpenDataClientAsync(passiveListener, activeDataEndpoint, linkedCts.Token);
                             using var dataStream = passiveClient.GetStream();
                             using var dataWriter = new StreamWriter(dataStream, utf8WithoutBom);
 
@@ -494,15 +546,16 @@ namespace FtpManager.Api.Services
                         {
                             passiveClient?.Dispose();
                             passiveClient = null;
-                            passiveListener.Stop();
+                            passiveListener?.Stop();
                             passiveListener = null;
+                            activeDataEndpoint = null;
                         }
                     }
                     else if (cmd == "STOR")
                     {
-                        if (passiveListener == null)
+                        if (passiveListener == null && activeDataEndpoint == null)
                         {
-                            await writer.WriteLineAsync("425 Use PASV first");
+                            await writer.WriteLineAsync("425 Use PASV/EPSV or PORT/EPRT first");
                             continue;
                         }
 
@@ -513,7 +566,7 @@ namespace FtpManager.Api.Services
                             using var cts = new CancellationTokenSource(5000);
                             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-                            passiveClient = await passiveListener.AcceptTcpClientAsync(linkedCts.Token);
+                            passiveClient = await OpenDataClientAsync(passiveListener, activeDataEndpoint, linkedCts.Token);
                             using var dataStream = passiveClient.GetStream();
 
                             string targetFile = NormalizePath(currentDirectory, args);
@@ -541,15 +594,16 @@ namespace FtpManager.Api.Services
                         {
                             passiveClient?.Dispose();
                             passiveClient = null;
-                            passiveListener.Stop();
+                            passiveListener?.Stop();
                             passiveListener = null;
+                            activeDataEndpoint = null;
                         }
                     }
                     else if (cmd == "RETR")
                     {
-                        if (passiveListener == null)
+                        if (passiveListener == null && activeDataEndpoint == null)
                         {
-                            await writer.WriteLineAsync("425 Use PASV first");
+                            await writer.WriteLineAsync("425 Use PASV/EPSV or PORT/EPRT first");
                             continue;
                         }
 
@@ -565,7 +619,7 @@ namespace FtpManager.Api.Services
                                 using var cts = new CancellationTokenSource(5000);
                                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-                                passiveClient = await passiveListener.AcceptTcpClientAsync(linkedCts.Token);
+                                passiveClient = await OpenDataClientAsync(passiveListener, activeDataEndpoint, linkedCts.Token);
                                 using var dataStream = passiveClient.GetStream();
 
                                 using (var fs = new FileStream(physicalPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true))
@@ -585,8 +639,9 @@ namespace FtpManager.Api.Services
                             {
                                 passiveClient?.Dispose();
                                 passiveClient = null;
-                                passiveListener.Stop();
+                                passiveListener?.Stop();
                                 passiveListener = null;
+                                activeDataEndpoint = null;
                             }
                         }
                         else
@@ -608,6 +663,96 @@ namespace FtpManager.Api.Services
             {
                 passiveClient?.Dispose();
                 passiveListener?.Stop();
+            }
+        }
+
+        private IPAddress ResolvePassiveAddress(IPAddress controlLocalAddress)
+        {
+            if (controlLocalAddress.AddressFamily == AddressFamily.InterNetwork &&
+                !IPAddress.Any.Equals(controlLocalAddress))
+            {
+                return controlLocalAddress;
+            }
+
+            return IPAddress.Loopback;
+        }
+
+        private static TcpListener CreateStartedPassiveListener()
+        {
+            for (var port = PassivePortMin; port <= PassivePortMax; port++)
+            {
+                TcpListener? listener = null;
+                try
+                {
+                    listener = new TcpListener(IPAddress.Any, port);
+                    listener.Start();
+                    return listener;
+                }
+                catch (SocketException)
+                {
+                    listener?.Stop();
+                    continue;
+                }
+            }
+
+            throw new SocketException((int)SocketError.AddressAlreadyInUse);
+        }
+
+        private static IPEndPoint ParsePortEndpoint(string args)
+        {
+            var parts = args.Split(',');
+            if (parts.Length != 6)
+            {
+                throw new FormatException("PORT requires six comma-separated values.");
+            }
+
+            var address = IPAddress.Parse(string.Join(".", parts[..4]));
+            var p1 = int.Parse(parts[4]);
+            var p2 = int.Parse(parts[5]);
+            return new IPEndPoint(address, (p1 * 256) + p2);
+        }
+
+        private static IPEndPoint ParseEprtEndpoint(string args)
+        {
+            if (string.IsNullOrWhiteSpace(args) || args.Length < 5)
+            {
+                throw new FormatException("EPRT is empty.");
+            }
+
+            var delimiter = args[0];
+            var parts = args.Split(delimiter, StringSplitOptions.None);
+            if (parts.Length < 4)
+            {
+                throw new FormatException("EPRT requires protocol, address and port.");
+            }
+
+            var address = IPAddress.Parse(parts[2]);
+            var port = int.Parse(parts[3]);
+            return new IPEndPoint(address, port);
+        }
+
+        private static async Task<TcpClient> OpenDataClientAsync(TcpListener? passiveListener, IPEndPoint? activeEndpoint, CancellationToken cancellationToken)
+        {
+            if (passiveListener != null)
+            {
+                return await passiveListener.AcceptTcpClientAsync(cancellationToken);
+            }
+
+            if (activeEndpoint == null)
+            {
+                throw new InvalidOperationException("No data connection has been negotiated.");
+            }
+
+            var activeClient = new TcpClient(activeEndpoint.AddressFamily);
+            try
+            {
+                await activeClient.ConnectAsync(activeEndpoint.Address, activeEndpoint.Port, cancellationToken);
+                return activeClient;
+            }
+            catch
+            {
+                activeClient.Dispose();
+                throw;
             }
         }
 

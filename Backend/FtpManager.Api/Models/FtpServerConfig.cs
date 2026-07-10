@@ -12,5 +12,6 @@ namespace FtpManager.Api.Models
         public string Password { get; set; } = string.Empty;
         public bool IsActive { get; set; } = false;
         public bool IsRunning { get; set; } = false; // Run state
+        public string? HostWarning { get; set; }
     }
 }

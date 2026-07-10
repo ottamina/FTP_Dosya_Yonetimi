@@ -119,11 +119,6 @@ function App() {
       return;
     }
 
-    if (!hasPermission('files.upload')) {
-      showToast('Dosya yukleme yetkiniz yok.', 'error');
-      return;
-    }
-
     setLoading(true);
     try {
       const response = await axios.post(`${ACCESS_API_BASE_URL}/login`, loginForm);
@@ -241,7 +236,10 @@ function App() {
 
   useEffect(() => {
     if (!appToken) return;
-    refreshCurrentUser();
+    const timer = setTimeout(() => {
+      refreshCurrentUser();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [appToken, refreshCurrentUser]);
 
   // Fetch initial logs and servers on mount
@@ -254,9 +252,11 @@ function App() {
   }, [appToken, fetchFtpServers]);
 
   useEffect(() => {
-    if (activeView === 'access') {
+    if (activeView !== 'access') return;
+    const timer = setTimeout(() => {
       fetchAccessData().catch((error) => showToast(`Yetki verileri alinamadi: ${error.response?.data || error.message}`, 'error'));
-    }
+    }, 0);
+    return () => clearTimeout(timer);
   }, [activeView, fetchAccessData]);
 
   // Fetch logs when active tab changes
@@ -328,7 +328,7 @@ function App() {
     try {
       const newConfig = {
         name: newServerName,
-        host: newServerHost,
+        host: newServerHost.trim(),
         port: portNum,
         username: newServerUser,
         password: newServerPass,
@@ -670,7 +670,7 @@ function App() {
           formData.append('chunkIndex', i.toString());
           formData.append('totalChunks', totalChunks.toString());
           formData.append('fileName', selectedFile.name);
-          formData.append('currentPath', selectedPath);
+          formData.append('currentPath', uploadTargetPath);
 
           const progress = Math.round(((i + 1) / totalChunks) * 100);
           setUploadStatus(`Parça ${i + 1}/${totalChunks} yükleniyor...`);
@@ -687,9 +687,9 @@ function App() {
         }
 
         showToast('Büyük dosya başarıyla birleştirildi ve yüklendi.');
-        addLog(`Büyük dosya parçalı yüklendi: "${selectedFile.name}" -> ${selectedPath}`, 'INFO', true);
+        addLog(`Büyük dosya parçalı yüklendi: "${selectedFile.name}" -> ${uploadTargetPath}`, 'INFO', true);
         setSelectedFile(null);
-        await fetchFolder(selectedPath);
+        await fetchFolder(uploadTargetPath);
       } catch (error) {
         // Cancel upload on backend to clean up chunks
         try {
@@ -710,7 +710,7 @@ function App() {
       addLog(`"${selectedFile.name}" dosyası yükleniyor...`, 'INFO', false);
       const formData = new FormData();
       formData.append('file', selectedFile);
-      formData.append('currentPath', selectedPath);
+      formData.append('currentPath', uploadTargetPath);
 
       try {
         await axios.post(`${API_BASE_URL}/upload`, formData, {
@@ -723,11 +723,11 @@ function App() {
         });
 
         showToast('Dosya başarıyla yüklendi.');
-        addLog(`Dosya yüklendi: "${selectedFile.name}" -> ${selectedPath}`, 'INFO', true);
+        addLog(`Dosya yüklendi: "${selectedFile.name}" -> ${uploadTargetPath}`, 'INFO', true);
         setSelectedFile(null);
         
         // Refresh current folder
-        await fetchFolder(selectedPath);
+        await fetchFolder(uploadTargetPath);
       } catch (error) {
         showToast(`Dosya yükleme hatası: ${error.response?.data || error.message}`, 'error');
         addLog(`Dosya yükleme hatası: ${error.message}`, 'ERROR', true);
@@ -891,7 +891,7 @@ function App() {
 
   // Copy server details to clipboard helper
   const copyServerDetails = (server) => {
-    const details = `Host: 127.0.0.1\nPort: ${server.port}\nUsername: ${server.username}\nPassword: ${server.password}`;
+    const details = `Host: ${server.host}\nPort: ${server.port}\nUsername: ${server.username}\nPassword: ${server.password}`;
     navigator.clipboard.writeText(details);
     showToast('Bağlantı bilgileri kopyalandı.');
   };

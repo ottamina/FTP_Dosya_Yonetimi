@@ -15,19 +15,23 @@ namespace FtpManager.Api.Models
         public const string LogsView = "logs.view";
         public const string AccessManage = "access.manage";
 
-        public static readonly string[] All =
+        public static readonly PermissionDefinition[] Definitions =
         {
-            FilesView,
-            FilesUpload,
-            FilesDownload,
-            FilesModify,
-            ServersView,
-            ServersManage,
-            ServersCredentials,
-            LogsView,
-            AccessManage
+            new(FilesView, "Dosyaları görüntüle"),
+            new(FilesUpload, "Dosya yükle"),
+            new(FilesDownload, "Dosya indir"),
+            new(FilesModify, "Dosya ve klasörleri düzenle veya sil"),
+            new(ServersView, "FTP sunucularını görüntüle"),
+            new(ServersManage, "FTP sunucularını oluştur, başlat, durdur veya sil"),
+            new(ServersCredentials, "FTP kullanıcı adı ve şifrelerini görüntüle"),
+            new(LogsView, "Logları görüntüle"),
+            new(AccessManage, "Üyeleri ve rolleri yönet")
         };
+
+        public static readonly string[] All = Definitions.Select(definition => definition.Key).ToArray();
     }
+
+    public record PermissionDefinition(string Key, string Label);
 
     public class AppRole
     {
