@@ -28,6 +28,7 @@ function AccessLogin({ loginForm, setLoginForm, handleAppLogin, loading, notific
             onChange={(e) => setLoginForm((prev) => ({ ...prev, username: e.target.value }))}
             className="mt-1.5 w-full bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-800 normal-case tracking-normal focus:outline-none focus:border-blue-500"
             autoComplete="username"
+            data-testid="app-username"
           />
         </label>
 
@@ -39,6 +40,7 @@ function AccessLogin({ loginForm, setLoginForm, handleAppLogin, loading, notific
             onChange={(e) => setLoginForm((prev) => ({ ...prev, password: e.target.value }))}
             className="mt-1.5 w-full bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm text-gray-800 normal-case tracking-normal focus:outline-none focus:border-blue-500"
             autoComplete="current-password"
+            data-testid="app-password"
           />
         </label>
 
@@ -46,6 +48,7 @@ function AccessLogin({ loginForm, setLoginForm, handleAppLogin, loading, notific
           type="submit"
           disabled={loading}
           className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-bold py-2.5 rounded-lg shadow-sm transition flex items-center justify-center gap-2"
+          data-testid="app-login"
         >
           <i className={`fa-solid ${loading ? 'fa-spinner animate-spin' : 'fa-arrow-right-to-bracket'}`}></i>
           Giris Yap

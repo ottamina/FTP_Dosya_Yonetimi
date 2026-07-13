@@ -4,7 +4,7 @@ function ConfirmModal({ confirmModal, setConfirmModal }) {
   if (!confirmModal.isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-all duration-300">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm transition-all duration-300" role="dialog" aria-modal="true" data-testid="confirm-modal">
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 w-full max-w-md overflow-hidden p-6 flex flex-col gap-4 transform scale-100 transition-all">
         
         {/* Header */}
@@ -47,6 +47,7 @@ function ConfirmModal({ confirmModal, setConfirmModal }) {
                 type="button"
                 onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
                 className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 px-4 rounded-xl text-sm transition-all duration-150 cursor-pointer"
+                data-testid="confirm-no"
               >
                 Hayır
               </button>
@@ -54,6 +55,7 @@ function ConfirmModal({ confirmModal, setConfirmModal }) {
                 type="button"
                 onClick={() => setConfirmModal(prev => ({ ...prev, step: 2 }))}
                 className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 px-4 rounded-xl text-sm transition-all duration-150 shadow-sm hover:shadow-md cursor-pointer"
+                data-testid="confirm-yes"
               >
                 Evet
               </button>
@@ -69,6 +71,7 @@ function ConfirmModal({ confirmModal, setConfirmModal }) {
                   }
                 }}
                 className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 px-4 rounded-xl text-sm transition-all duration-150 shadow-sm hover:shadow-md cursor-pointer"
+                data-testid="confirm-final-yes"
               >
                 Evet
               </button>
@@ -76,6 +79,7 @@ function ConfirmModal({ confirmModal, setConfirmModal }) {
                 type="button"
                 onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
                 className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2.5 px-4 rounded-xl text-sm transition-all duration-150 cursor-pointer"
+                data-testid="confirm-final-no"
               >
                 Hayır
               </button>

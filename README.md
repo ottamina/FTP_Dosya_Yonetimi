@@ -2,6 +2,8 @@
 
 > Ayrıntılı mimari, bütün servislerin açıklaması, FTP–SFTP–ngrok akışları, API referansı ve çok sayıda diyagram için [Eğitim ve Teknik Dokümantasyon Merkezi](docs/README.md) belgesinden başlayın.
 
+> Arayüzdeki bütün kullanıcı eylemlerini planlayan ve çalıştıran iki ajanlı test altyapısı için [Uçtan Uca Test Sistemi](Tests/E2E/README.md) belgesine bakın.
+
 Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak için geliştirilmiş, tam yığın bir uygulamadır. React tabanlı arayüz; ASP.NET Core API, FluentFTP ile uzak sunucu bağlantıları ve yerleşik bir yerel FTP sunucusuyla birlikte çalışır.
 
 ## Öne çıkanlar

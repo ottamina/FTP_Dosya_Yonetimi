@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import Header from './components/Header';
 import ConfirmModal from './components/ConfirmModal';
+import TextInputModal from './components/TextInputModal';
 import Sidebar from './components/Sidebar';
 import UploadPanel from './components/UploadPanel';
 import ServerManager from './components/ServerManager';
@@ -83,6 +84,16 @@ function App() {
     title: '',
     message: '',
     step: 1, // 1 or 2
+    onConfirm: null
+  });
+
+  const [textInputModal, setTextInputModal] = useState({
+    isOpen: false,
+    title: '',
+    label: '',
+    placeholder: '',
+    initialValue: '',
+    confirmText: 'Kaydet',
     onConfirm: null
   });
 
@@ -428,9 +439,17 @@ function App() {
   };
 
   // Folder creation
-  const handleCreateFolder = async () => {
-    const folderName = prompt('Oluşturmak istediğiniz klasörün adını giriniz:');
-    if (!folderName) return;
+  const handleCreateFolder = () => {
+    requestTextInput({
+      title: 'Yeni Klasör Oluştur',
+      label: 'Klasör adı',
+      placeholder: 'Örn: Belgeler',
+      confirmText: 'Oluştur',
+      onConfirm: createFolder
+    });
+  };
+
+  const createFolder = async (folderName) => {
 
     const targetDirectory = getUploadTargetPath();
     const parentPath = targetDirectory.endsWith('/') ? targetDirectory : targetDirectory + '/';
@@ -908,6 +927,24 @@ function App() {
     showToast('Bağlantı bilgileri kopyalandı.');
   };
 
+  const requestRenameItem = (item) => {
+    requestTextInput({
+      title: 'Yeniden Adlandır',
+      label: 'Yeni isim',
+      initialValue: item.name,
+      confirmText: 'Değiştir',
+      onConfirm: (newName) => handleRenameItem(item, newName)
+    });
+  };
+
+  const closeTextInputModal = () => {
+    setTextInputModal((prev) => ({ ...prev, isOpen: false, onConfirm: null }));
+  };
+
+  const requestTextInput = ({ title, label, placeholder = '', initialValue = '', confirmText = 'Kaydet', onConfirm }) => {
+    setTextInputModal({ isOpen: true, title, label, placeholder, initialValue, confirmText, onConfirm });
+  };
+
   const handleProvisionSftp = async (id, name) => {
     try {
       const response = await axios.post(`${API_BASE_URL}/servers/${id}/sftp`);
@@ -1080,7 +1117,7 @@ function App() {
               searchResultsList={searchResults()}
               handleDownloadFile={handleDownloadFile}
               onFileClick={handlePreviewFile}
-              onRenameItem={handleRenameItem}
+              onRequestRename={requestRenameItem}
               onMoveItem={handleMoveItem}
             />
 
@@ -1167,6 +1204,7 @@ function App() {
 
       {/* Custom Double Confirmation Modal */}
       <ConfirmModal confirmModal={confirmModal} setConfirmModal={setConfirmModal} />
+      <TextInputModal modal={textInputModal} onClose={closeTextInputModal} />
     </div>
   );
 }

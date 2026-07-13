@@ -1,0 +1,1 @@
+FTP Manager yeniden adlandırma regresyon testi.

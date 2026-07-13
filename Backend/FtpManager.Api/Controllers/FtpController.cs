@@ -36,6 +36,8 @@ namespace FtpManager.Api.Controllers
         [HttpGet("list")]
         public async Task<IActionResult> GetList([FromQuery] string path = "/")
         {
+            var denial = DenyUnless(PermissionKeys.FilesView);
+            if (denial is not null) return denial;
             try
             {
                 var items = await _ftpService.GetListAsync(path);
@@ -51,6 +53,8 @@ namespace FtpManager.Api.Controllers
         [HttpPost("upload")]
         public async Task<IActionResult> UploadFile(IFormFile file, [FromForm] string currentPath)
         {
+            var denial = DenyUnless(PermissionKeys.FilesUpload);
+            if (denial is not null) return denial;
             if (file == null || file.Length == 0)
                 return BadRequest("Geçersiz dosya.");
 
@@ -84,6 +88,8 @@ namespace FtpManager.Api.Controllers
             [FromForm] string fileName,
             [FromForm] string currentPath)
         {
+            var denial = DenyUnless(PermissionKeys.FilesUpload);
+            if (denial is not null) return denial;
             if (file == null || file.Length == 0)
                 return BadRequest("Geçersiz chunk.");
             if (string.IsNullOrEmpty(uploadId))
@@ -181,6 +187,8 @@ namespace FtpManager.Api.Controllers
         [HttpPost("cancel-upload")]
         public IActionResult CancelUpload([FromQuery] string uploadId)
         {
+            var denial = DenyUnless(PermissionKeys.FilesUpload);
+            if (denial is not null) return denial;
             if (string.IsNullOrEmpty(uploadId))
                 return BadRequest("Geçersiz uploadId.");
 
@@ -205,6 +213,8 @@ namespace FtpManager.Api.Controllers
         [HttpPost("rename")]
         public async Task<IActionResult> Rename([FromQuery] string sourcePath, [FromQuery] string targetPath)
         {
+            var denial = DenyUnless(PermissionKeys.FilesModify);
+            if (denial is not null) return denial;
             if (string.IsNullOrEmpty(sourcePath) || string.IsNullOrEmpty(targetPath))
                 return BadRequest("Geçersiz kaynak veya hedef yol.");
 
@@ -234,6 +244,8 @@ namespace FtpManager.Api.Controllers
         [HttpGet("download")]
         public async Task<IActionResult> DownloadFile([FromQuery] string remotePath)
         {
+            var denial = DenyUnless(PermissionKeys.FilesDownload);
+            if (denial is not null) return denial;
             try
             {
                 string decodedPath = Uri.UnescapeDataString(remotePath);
@@ -251,6 +263,8 @@ namespace FtpManager.Api.Controllers
         [HttpDelete("delete")]
         public async Task<IActionResult> DeleteItem([FromQuery] string path, [FromQuery] bool isFolder)
         {
+            var denial = DenyUnless(PermissionKeys.FilesModify);
+            if (denial is not null) return denial;
             try
             {
                 string decodedPath = Uri.UnescapeDataString(path);
@@ -268,6 +282,8 @@ namespace FtpManager.Api.Controllers
         [HttpPost("create-folder")]
         public async Task<IActionResult> CreateFolder([FromQuery] string path)
         {
+            var denial = DenyUnless(PermissionKeys.FilesModify);
+            if (denial is not null) return denial;
             try
             {
                 string decodedPath = Uri.UnescapeDataString(path);
@@ -284,6 +300,8 @@ namespace FtpManager.Api.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromQuery] string username)
         {
+            var denial = DenyUnless(PermissionKeys.FilesView);
+            if (denial is not null) return denial;
             try
             {
                 var isSuccess = await _ftpService.VerifyCredentialsAsync();
@@ -304,6 +322,8 @@ namespace FtpManager.Api.Controllers
         [HttpGet("logs/file")]
         public async Task<IActionResult> GetFileLogs()
         {
+            var denial = DenyUnless(PermissionKeys.LogsView);
+            if (denial is not null) return denial;
             try
             {
                 var logs = await _customLogger.GetJsonLogsAsync();
@@ -318,6 +338,8 @@ namespace FtpManager.Api.Controllers
         [HttpGet("logs/database")]
         public async Task<IActionResult> GetDatabaseLogs()
         {
+            var denial = DenyUnless(PermissionKeys.LogsView);
+            if (denial is not null) return denial;
             try
             {
                 var logs = await _customLogger.GetDatabaseLogsAsync();
@@ -479,6 +501,23 @@ namespace FtpManager.Api.Controllers
             catch (Exception ex)
             {
                 return BadRequest(ex.Message);
+            }
+        }
+
+        private IActionResult? DenyUnless(string permission)
+        {
+            try
+            {
+                var user = _accessService.GetCurrentUser(HttpContext);
+                if (!user.Permissions.Contains(permission))
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = "Bu islem icin yetkiniz yok." });
+                }
+                return null;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { message = ex.Message });
             }
         }
     }

@@ -56,12 +56,14 @@ function UploadPanel({
               ? 'border-green-400 bg-green-50/30' 
               : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50/50'
         }`}
+        data-testid="upload-dropzone"
       >
         <input 
           type="file" 
           ref={fileInputRef}
           onChange={handleFileChange}
           className="hidden" 
+          data-testid="upload-file-input"
         />
         {selectedFile ? (
           <div className="flex flex-col items-center gap-2">
@@ -83,6 +85,7 @@ function UploadPanel({
           type="button"
           onClick={handleUpload}
           className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded-lg transition shadow-sm hover:shadow-md cursor-pointer flex-shrink-0"
+          data-testid="upload-submit"
         >
           FTP'ye Gönder
         </button>

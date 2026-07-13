@@ -31,7 +31,7 @@ function Sidebar({
   searchResultsList,
   handleDownloadFile,
   onFileClick,
-  onRenameItem,
+  onRequestRename,
   onMoveItem
 }) {
   return (
@@ -46,6 +46,7 @@ function Sidebar({
             disabled={!isLoggedIn}
             className={`p-1.5 rounded transition duration-150 ${!isLoggedIn ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-blue-600 hover:bg-gray-100'}`}
             title="Klasör Oluştur"
+            data-testid="explorer-create-folder"
           >
             <i className="fa-solid fa-folder-plus text-base"></i>
           </button>
@@ -55,6 +56,7 @@ function Sidebar({
             disabled={!isLoggedIn}
             className={`p-1.5 rounded transition duration-150 ${!isLoggedIn ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-blue-600 hover:bg-gray-100'}`}
             title="Yenile"
+            data-testid="explorer-refresh"
           >
             <i className="fa-solid fa-arrows-rotate text-base"></i>
           </button>
@@ -64,6 +66,7 @@ function Sidebar({
             disabled={!isLoggedIn}
             className={`p-1.5 rounded transition duration-150 ${!isLoggedIn ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:text-blue-600 hover:bg-gray-100'}`}
             title="Ağacı Daralt"
+            data-testid="explorer-collapse"
           >
             <i className="fa-solid fa-chevron-down text-base"></i>
           </button>
@@ -77,6 +80,7 @@ function Sidebar({
             value={selectedServerId}
             onChange={(e) => handleServerChange(e.target.value)}
             className="w-full bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 appearance-none font-semibold text-gray-700"
+            data-testid="ftp-server-select"
           >
             {ftpServers.map((server) => (
               <option key={server.id} value={server.id}>
@@ -129,6 +133,7 @@ function Sidebar({
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             className="w-full bg-gray-50 border border-gray-200 rounded pl-7 pr-2 py-1.5 text-xs focus:outline-none focus:border-blue-500 font-semibold"
+            data-testid="ftp-username"
           />
         </div>
         <div className="relative flex-1">
@@ -141,11 +146,13 @@ function Sidebar({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full bg-gray-50 border border-gray-200 rounded pl-7 pr-7 py-1.5 text-xs focus:outline-none focus:border-blue-500 font-semibold"
+            data-testid="ftp-password"
           />
           <button 
             type="button"
             onClick={() => setShowPassword(!showPassword)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+            data-testid="ftp-password-toggle"
           >
             <i className={`fa-solid ${showPassword ? 'fa-eye-slash' : 'fa-eye'}`}></i>
           </button>
@@ -154,6 +161,7 @@ function Sidebar({
           type="submit"
           className="bg-green-600 hover:bg-green-700 text-white rounded p-1.5 transition flex items-center justify-center font-bold"
           title="Giriş Yap / Doğrula"
+          data-testid="ftp-login"
         >
           <i className="fa-solid fa-arrow-right-to-bracket text-sm px-1"></i>
         </button>
@@ -171,6 +179,7 @@ function Sidebar({
           onChange={(e) => setSearchQuery(e.target.value)}
           disabled={!isLoggedIn}
           className="w-full border border-gray-200 rounded-full pl-9 pr-4 py-2 text-sm focus:outline-none focus:border-blue-500 focus:shadow-sm transition disabled:bg-gray-50 disabled:cursor-not-allowed"
+          data-testid="explorer-search"
         />
       </div>
 
@@ -209,6 +218,7 @@ function Sidebar({
                       setSelectedPath(item.fullName);
                       if (!item.isFolder && onFileClick) onFileClick(item);
                     }}
+                    data-testid={`search-item-${item.fullName}`}
                   >
                     <span className="flex items-center gap-2 overflow-hidden">
                       <i className={`fa-solid ${item.isFolder ? 'fa-folder text-yellow-500' : getFileIcon(item.name)} text-base flex-shrink-0`}></i>
@@ -220,6 +230,7 @@ function Sidebar({
                           type="button"
                           onClick={(e) => { e.stopPropagation(); handleDownloadFile(item); }}
                           className="text-green-600 hover:text-green-800 p-0.5 hover:bg-white rounded shadow-sm"
+                          data-testid={`download-item-${item.fullName}`}
                         >
                           <i className="fa-solid fa-download text-[11px] px-1"></i>
                         </button>
@@ -228,11 +239,11 @@ function Sidebar({
                         type="button"
                         onClick={(e) => { 
                           e.stopPropagation(); 
-                          const newName = prompt('Yeni ismi girin:', item.name);
-                          if (newName) onRenameItem(item, newName);
+                          onRequestRename(item);
                         }}
                         className="text-blue-500 hover:text-blue-700 p-0.5 hover:bg-white rounded shadow-sm"
                         title="Yeniden Adlandır"
+                        data-testid={`rename-item-${item.fullName}`}
                       >
                         <i className="fa-solid fa-pen text-[11px] px-1"></i>
                       </button>
@@ -240,6 +251,7 @@ function Sidebar({
                         type="button"
                         onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
                         className="text-red-500 hover:text-red-700 p-0.5 hover:bg-white rounded shadow-sm"
+                        data-testid={`delete-item-${item.fullName}`}
                       >
                         <i className="fa-solid fa-trash text-[11px] px-1"></i>
                       </button>
@@ -259,7 +271,7 @@ function Sidebar({
               getFileIcon={getFileIcon}
               handleDownloadFile={handleDownloadFile}
               onFileClick={onFileClick}
-              onRenameItem={onRenameItem}
+              onRequestRename={onRequestRename}
               onMoveItem={onMoveItem}
             />
           )

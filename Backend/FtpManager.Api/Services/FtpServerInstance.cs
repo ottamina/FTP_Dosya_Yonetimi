@@ -413,20 +413,33 @@ namespace FtpManager.Api.Services
 
                         if (IsWithinFtpRoot(physicalPath))
                         {
+                            var sourcePath = renameFromPath;
                             try
                             {
-                                if (Directory.Exists(renameFromPath))
+                                if (string.Equals(sourcePath, physicalPath, StringComparison.Ordinal))
                                 {
-                                    Directory.Move(renameFromPath, physicalPath);
+                                    await writer.WriteLineAsync("250 Requested file action okay, completed");
+                                    continue;
                                 }
-                                else if (File.Exists(renameFromPath))
+
+                                if (File.Exists(physicalPath) || Directory.Exists(physicalPath))
+                                {
+                                    await writer.WriteLineAsync("553 Destination already exists");
+                                    continue;
+                                }
+
+                                if (Directory.Exists(sourcePath))
+                                {
+                                    Directory.Move(sourcePath, physicalPath);
+                                }
+                                else if (File.Exists(sourcePath))
                                 {
                                     var parentDir = Path.GetDirectoryName(physicalPath);
                                     if (parentDir != null && !Directory.Exists(parentDir))
                                     {
                                         Directory.CreateDirectory(parentDir);
                                     }
-                                    File.Move(renameFromPath, physicalPath);
+                                    File.Move(sourcePath, physicalPath);
                                 }
                                 else
                                 {
@@ -435,13 +448,26 @@ namespace FtpManager.Api.Services
                                     continue;
                                 }
 
-                                renameFromPath = null;
                                 await writer.WriteLineAsync("250 Requested file action okay, completed");
+                            }
+                            catch (UnauthorizedAccessException ex)
+                            {
+                                _logger.LogError(ex, "RNTO access denied. Source: {SourcePath}, Target: {TargetPath}", sourcePath, physicalPath);
+                                await writer.WriteLineAsync("550 Rename access denied");
+                            }
+                            catch (IOException ex) when (IsSharingViolation(ex))
+                            {
+                                _logger.LogError(ex, "RNTO file is in use. Source: {SourcePath}, Target: {TargetPath}", sourcePath, physicalPath);
+                                await writer.WriteLineAsync("450 File is being used by another process");
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogError(ex, "Error executing RNTO command");
-                                await writer.WriteLineAsync("550 Rename failed");
+                                _logger.LogError(ex, "RNTO failed. Source: {SourcePath}, Target: {TargetPath}", sourcePath, physicalPath);
+                                await writer.WriteLineAsync($"550 Rename failed: {ex.GetType().Name}");
+                            }
+                            finally
+                            {
+                                renameFromPath = null;
                             }
                         }
                         else
@@ -833,6 +859,14 @@ namespace FtpManager.Api.Services
                    relativePath != ".." &&
                    !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
                    !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
+        }
+
+        private static bool IsSharingViolation(IOException exception)
+        {
+            const int sharingViolation = 32;
+            const int lockViolation = 33;
+            var errorCode = exception.HResult & 0xFFFF;
+            return errorCode == sharingViolation || errorCode == lockViolation;
         }
     }
 }

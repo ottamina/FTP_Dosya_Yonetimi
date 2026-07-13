@@ -10,7 +10,7 @@ function FolderTree({
   getFileIcon,
   handleDownloadFile,
   onFileClick,
-  onRenameItem,
+  onRequestRename,
   onMoveItem
 }) {
   
@@ -63,6 +63,7 @@ function FolderTree({
                     selectedPath === item.fullName ? 'bg-blue-50 text-blue-700 font-semibold' : ''
                   }`}
                   onClick={() => handleFolderClick(item)}
+                  data-testid={`tree-item-${item.fullName}`}
                 >
                   <span className="flex items-center gap-2 overflow-hidden pointer-events-none">
                     <i className={`fa-solid ${isOpen ? 'fa-folder-open text-yellow-500' : 'fa-folder text-yellow-500'} text-base flex-shrink-0`}></i>
@@ -73,11 +74,11 @@ function FolderTree({
                       type="button"
                       onClick={(e) => { 
                         e.stopPropagation(); 
-                        const newName = prompt('Yeni ismi girin:', item.name);
-                        if (newName) onRenameItem(item, newName);
+                        onRequestRename(item);
                       }}
                       className="text-blue-500 hover:text-blue-700 p-0.5 hover:bg-white rounded shadow-sm"
                       title="Yeniden Adlandır"
+                      data-testid={`rename-item-${item.fullName}`}
                     >
                       <i className="fa-solid fa-pen text-[11px] px-1"></i>
                     </button>
@@ -86,6 +87,7 @@ function FolderTree({
                       onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
                       className="text-red-500 hover:text-red-700 p-0.5 hover:bg-white rounded shadow-sm"
                       title="Sil"
+                      data-testid={`delete-item-${item.fullName}`}
                     >
                       <i className="fa-solid fa-trash text-[11px] px-1"></i>
                     </button>
@@ -107,6 +109,7 @@ function FolderTree({
                   setSelectedPath(item.fullName);
                   if (onFileClick) onFileClick(item);
                 }}
+                data-testid={`tree-item-${item.fullName}`}
               >
                 <span className="flex items-center gap-2 overflow-hidden pointer-events-none">
                   <i className={`fa-solid ${getFileIcon(item.name)} text-base flex-shrink-0`}></i>
@@ -118,6 +121,7 @@ function FolderTree({
                     onClick={(e) => { e.stopPropagation(); handleDownloadFile(item); }}
                     className="text-green-600 hover:text-green-800 p-0.5 hover:bg-white rounded shadow-sm"
                     title="İndir"
+                    data-testid={`download-item-${item.fullName}`}
                   >
                     <i className="fa-solid fa-download text-[11px] px-1"></i>
                   </button>
@@ -125,11 +129,11 @@ function FolderTree({
                     type="button"
                     onClick={(e) => { 
                       e.stopPropagation(); 
-                      const newName = prompt('Yeni ismi girin:', item.name);
-                      if (newName) onRenameItem(item, newName);
+                      onRequestRename(item);
                     }}
                     className="text-blue-500 hover:text-blue-700 p-0.5 hover:bg-white rounded shadow-sm"
                     title="Yeniden Adlandır"
+                    data-testid={`rename-item-${item.fullName}`}
                   >
                     <i className="fa-solid fa-pen text-[11px] px-1"></i>
                   </button>
@@ -138,6 +142,7 @@ function FolderTree({
                     onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
                     className="text-red-500 hover:text-red-700 p-0.5 hover:bg-white rounded shadow-sm"
                     title="Sil"
+                    data-testid={`delete-item-${item.fullName}`}
                   >
                     <i className="fa-solid fa-trash text-[11px] px-1"></i>
                   </button>
@@ -160,6 +165,7 @@ function FolderTree({
           selectedPath === '/' ? 'bg-blue-50 text-blue-700' : 'text-gray-800'
         }`}
         onClick={() => setSelectedPath('/')}
+        data-testid="tree-root"
       >
         <span className="flex items-center gap-2 pointer-events-none">
           <i className="fa-solid fa-folder-open text-yellow-500"></i>

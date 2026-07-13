@@ -129,15 +129,19 @@ namespace FtpManager.Api.Services
             var administratorsSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
             var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
             var usersSid = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+            var apiProcessSid = WindowsIdentity.GetCurrent().User
+                ?? throw new InvalidOperationException("API Windows kullanicisi belirlenemedi.");
             var userSid = (SecurityIdentifier)new NTAccount(Environment.MachineName, username)
                 .Translate(typeof(SecurityIdentifier));
 
             // Chroot ancestors must not be writable by the SFTP account, but the
             // account still needs read/traverse permission to enter its jail.
-            SetDirectoryAcl(productDirectory, administratorsSid, systemSid, usersSid, null);
-            SetDirectoryAcl(baseDirectory, administratorsSid, systemSid, usersSid, null);
-            SetDirectoryAcl(chrootDirectory, administratorsSid, systemSid, userSid, null);
-            SetDirectoryAcl(dataDirectory, administratorsSid, systemSid, null, userSid);
+            SetDirectoryAcl(productDirectory, administratorsSid, systemSid, usersSid, null, null);
+            SetDirectoryAcl(baseDirectory, administratorsSid, systemSid, usersSid, null, null);
+            SetDirectoryAcl(chrootDirectory, administratorsSid, systemSid, userSid, null, null);
+            // The FTP API and the restricted SFTP account share this directory.
+            // Chroot ancestors remain non-writable; only /data grants Modify to both identities.
+            SetDirectoryAcl(dataDirectory, administratorsSid, systemSid, null, userSid, apiProcessSid);
         }
 
         private static void SetDirectoryAcl(
@@ -145,7 +149,8 @@ namespace FtpManager.Api.Services
             SecurityIdentifier administratorsSid,
             SecurityIdentifier systemSid,
             SecurityIdentifier? readOnlySid,
-            SecurityIdentifier? writableUserSid)
+            SecurityIdentifier? writableUserSid,
+            SecurityIdentifier? apiProcessSid)
         {
             const InheritanceFlags inheritance = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
             var security = new DirectorySecurity();
@@ -168,6 +173,11 @@ namespace FtpManager.Api.Services
             {
                 security.AddAccessRule(new FileSystemAccessRule(
                     writableUserSid, FileSystemRights.Modify, inheritance, PropagationFlags.None, AccessControlType.Allow));
+            }
+            if (apiProcessSid is not null && (writableUserSid is null || !apiProcessSid.Equals(writableUserSid)))
+            {
+                security.AddAccessRule(new FileSystemAccessRule(
+                    apiProcessSid, FileSystemRights.Modify, inheritance, PropagationFlags.None, AccessControlType.Allow));
             }
             new DirectoryInfo(path).SetAccessControl(security);
         }

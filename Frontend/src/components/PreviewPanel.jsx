@@ -67,7 +67,7 @@ function PreviewPanel({ file, previewData, loading, onClose }) {
   };
 
   return (
-    <div className="w-[500px] border-l border-gray-200 bg-white flex flex-col p-6 shadow-2xl relative transition-all duration-300 animate-slide-in">
+    <div className="w-[500px] border-l border-gray-200 bg-white flex flex-col p-6 shadow-2xl relative transition-all duration-300 animate-slide-in" data-testid="preview-panel">
       {/* Header bar */}
       <div className="flex justify-between items-start border-b border-gray-150 pb-4 mb-4">
         <div className="min-w-0">
@@ -83,6 +83,7 @@ function PreviewPanel({ file, previewData, loading, onClose }) {
           onClick={onClose}
           className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-150 rounded transition duration-150 cursor-pointer"
           title="Önizlemeyi Kapat"
+          data-testid="preview-close"
         >
           <i className="fa-solid fa-xmark text-lg"></i>
         </button>
@@ -127,7 +128,7 @@ function PreviewPanel({ file, previewData, loading, onClose }) {
             {previewData.type === 'text' && (
               <div className="flex flex-col gap-2">
                 <div className="text-[10px] text-gray-450 font-bold uppercase tracking-wider">Dosya İçeriği</div>
-                <pre className="bg-gray-50 p-4 rounded-xl border border-gray-150 font-mono text-[11px] leading-relaxed overflow-auto max-h-[500px] text-gray-700 select-text shadow-inner">
+                <pre className="bg-gray-50 p-4 rounded-xl border border-gray-150 font-mono text-[11px] leading-relaxed overflow-auto max-h-[500px] text-gray-700 select-text shadow-inner" data-testid="preview-text">
                   {previewData.content}
                 </pre>
               </div>
