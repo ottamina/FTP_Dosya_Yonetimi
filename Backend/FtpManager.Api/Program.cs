@@ -12,6 +12,8 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<ILogService, LogService>();
 builder.Services.AddSingleton<AccessService>();
+builder.Services.AddSingleton<OpenSshSftpProvisioner>();
+builder.Services.AddSingleton<NgrokTunnelService>();
 builder.Services.AddSingleton<LocalFtpServer>();
 builder.Services.AddHostedService<LocalFtpServer>(provider => provider.GetRequiredService<LocalFtpServer>());
 builder.Services.AddScoped<FtpService>();

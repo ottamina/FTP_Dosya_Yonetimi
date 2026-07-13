@@ -34,6 +34,7 @@ function App() {
 
   // Dynamic FTP Servers State
   const [ftpServers, setFtpServers] = useState([]);
+  const [sftpTunnel, setSftpTunnel] = useState({ isRunning: false, localPort: 2222, status: 'Ngrok tuneli kapali.' });
   const [selectedServerId, setSelectedServerId] = useState('default');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -164,6 +165,16 @@ function App() {
     }
   }, [appToken, hasPermission, selectedServerId]);
 
+  const fetchSftpTunnel = useCallback(async (localPort = 2222) => {
+    if (!appToken || !hasPermission('servers.view')) return;
+    try {
+      const response = await axios.get(`${API_BASE_URL}/sftp/tunnel?localPort=${localPort}`);
+      setSftpTunnel(response.data);
+    } catch (error) {
+      console.error('SFTP tunel durumu alinamadi:', error);
+    }
+  }, [appToken, hasPermission]);
+
   // Fetch logs from backend
   const fetchLogs = useCallback(async (tab) => {
     if (!appToken || !hasPermission('logs.view')) {
@@ -247,9 +258,10 @@ function App() {
     if (!appToken) return;
     const timer = setTimeout(() => {
       fetchFtpServers();
+      fetchSftpTunnel();
     }, 0);
     return () => clearTimeout(timer);
-  }, [appToken, fetchFtpServers]);
+  }, [appToken, fetchFtpServers, fetchSftpTunnel]);
 
   useEffect(() => {
     if (activeView !== 'access') return;
@@ -896,6 +908,45 @@ function App() {
     showToast('Bağlantı bilgileri kopyalandı.');
   };
 
+  const handleProvisionSftp = async (id, name) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/servers/${id}/sftp`);
+      showToast(`"${name}" icin kisitli SFTP erisimi hazirlandi. Yerel port: ${response.data.sftpLocalPort}`);
+      await fetchFtpServers();
+      await fetchSftpTunnel(response.data.sftpLocalPort);
+    } catch (error) {
+      showToast(`SFTP hazirlanamadi: ${error.response?.data || error.message}`, 'error');
+    }
+  };
+
+  const handleStartSftpTunnel = async (id) => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/servers/${id}/sftp/tunnel/start`);
+      setSftpTunnel(response.data);
+      showToast(`Ngrok tuneli acildi: ${response.data.publicHost}:${response.data.publicPort}`);
+    } catch (error) {
+      showToast(`Ngrok tuneli acilamadi: ${error.response?.data || error.message}`, 'error');
+    }
+  };
+
+  const handleStopSftpTunnel = async () => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/sftp/tunnel/stop?localPort=${sftpTunnel.localPort || 2222}`);
+      setSftpTunnel(response.data);
+      showToast(response.data.status);
+    } catch (error) {
+      showToast(`Ngrok tuneli durdurulamadi: ${error.response?.data || error.message}`, 'error');
+    }
+  };
+
+  const copySftpDetails = (server) => {
+    const host = sftpTunnel.isRunning ? sftpTunnel.publicHost : '127.0.0.1';
+    const port = sftpTunnel.isRunning ? sftpTunnel.publicPort : server.sftpLocalPort;
+    const details = `Protocol: SFTP\nHost: ${host}\nPort: ${port}\nUsername: ${server.sftpUsername}\nPassword: ${server.sftpPassword}`;
+    navigator.clipboard.writeText(details);
+    showToast('SFTP baglanti bilgileri kopyalandi.');
+  };
+
   const resetUserForm = () => {
     setEditingUserId(null);
     setUserForm({ fullName: '', username: '', password: '', roleId: roles[0]?.id || '', isActive: true });
@@ -1079,8 +1130,13 @@ function App() {
             ftpServers={ftpServers}
             handleStartServer={handleStartServer}
             handleStopServer={handleStopServer}
+            handleProvisionSftp={handleProvisionSftp}
+            handleStartSftpTunnel={handleStartSftpTunnel}
+            handleStopSftpTunnel={handleStopSftpTunnel}
             handleDeleteServer={handleDeleteServer}
             copyServerDetails={copyServerDetails}
+            copySftpDetails={copySftpDetails}
+            sftpTunnel={sftpTunnel}
             canManageServers={hasPermission('servers.manage')}
             canViewCredentials={hasPermission('servers.credentials')}
           />

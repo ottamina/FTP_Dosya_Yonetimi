@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Principal;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using FtpManager.Api.Models;
@@ -20,22 +21,35 @@ namespace FtpManager.Api.Services
         private readonly string _ftpBaseRoot;
         private readonly ILogger<LocalFtpServer> _logger;
         private readonly ILoggerFactory _loggerFactory;
+        private readonly OpenSshSftpProvisioner _sftpProvisioner;
         private readonly ConcurrentDictionary<string, FtpServerInstance> _instances = new();
         private readonly object _lock = new();
 
-        public LocalFtpServer(ILogger<LocalFtpServer> logger, ILoggerFactory loggerFactory)
+        public LocalFtpServer(ILogger<LocalFtpServer> logger, ILoggerFactory loggerFactory, OpenSshSftpProvisioner sftpProvisioner)
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
+            _sftpProvisioner = sftpProvisioner;
             
             // Set up config database path
             var logsDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
             var dbDir = Path.Combine(logsDir, "database");
             Directory.CreateDirectory(dbDir);
-            _dbFilePath = Path.Combine(dbDir, "ftp_manager.db");
+            var databasePath = Path.Combine(dbDir, "ftp_manager.db");
+            _dbFilePath = $"Filename={databasePath};Connection=shared";
             
-            _ftpBaseRoot = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "ftp_root");
-            Directory.CreateDirectory(_ftpBaseRoot);
+            var legacyFtpBaseRoot = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "ftp_root");
+            if (IsRunningAsAdministrator())
+            {
+                _ftpBaseRoot = ServerStorage.GetSecureBaseRoot();
+                ServerStorage.MigrateLegacyBaseRoot(legacyFtpBaseRoot, _ftpBaseRoot);
+            }
+            else
+            {
+                _ftpBaseRoot = legacyFtpBaseRoot;
+                Directory.CreateDirectory(_ftpBaseRoot);
+                _logger.LogWarning("API yonetici olarak calismiyor. FTP kullanilabilir; kisitli SFTP hazirlamak icin API'yi yonetici olarak yeniden baslatin.");
+            }
 
             // Clean up temporary uploads directory on startup
             var tempRoot = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "temp");
@@ -100,6 +114,30 @@ namespace FtpManager.Api.Services
             {
                 try
                 {
+                    if (config.SftpEnabled)
+                    {
+                        try
+                        {
+                            var storage = ServerStorage.EnsureLayout(_ftpBaseRoot, config.Id);
+                            _sftpProvisioner.Provision(config, storage.ChrootDirectory, storage.DataDirectory, rotatePassword: false);
+                            lock (_lock)
+                            {
+                                using var db = new LiteDatabase(_dbFilePath);
+                                db.GetCollection<FtpServerConfig>("servers").Update(config);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "SFTP configuration for server '{Name}' could not be refreshed during startup.", config.Name);
+                            config.SftpStatus = $"Hazirlama basarisiz: {ex.Message}";
+                            lock (_lock)
+                            {
+                                using var db = new LiteDatabase(_dbFilePath);
+                                db.GetCollection<FtpServerConfig>("servers").Update(config);
+                            }
+                        }
+                    }
+
                     var instance = new FtpServerInstance(config, _ftpBaseRoot, _loggerFactory.CreateLogger<FtpServerInstance>());
                     instance.Start();
                     _instances[config.Id] = instance;
@@ -150,7 +188,12 @@ namespace FtpManager.Api.Services
                             Password = config.Password,
                             IsActive = config.IsActive,
                             IsRunning = hasInstance && instance != null && instance.IsRunning,
-                            HostWarning = GetHostWarning(config.Host)
+                            HostWarning = GetHostWarning(config.Host),
+                            SftpUsername = config.SftpUsername,
+                            SftpPassword = config.SftpPassword,
+                            SftpEnabled = config.SftpEnabled,
+                            SftpStatus = config.SftpStatus,
+                            SftpLocalPort = config.SftpLocalPort
                         });
                     }
                 }
@@ -179,7 +222,12 @@ namespace FtpManager.Api.Services
                         Password = config.Password,
                         IsActive = config.IsActive,
                         IsRunning = hasInstance && instance != null && instance.IsRunning,
-                        HostWarning = GetHostWarning(config.Host)
+                        HostWarning = GetHostWarning(config.Host),
+                        SftpUsername = config.SftpUsername,
+                        SftpPassword = config.SftpPassword,
+                        SftpEnabled = config.SftpEnabled,
+                        SftpStatus = config.SftpStatus,
+                        SftpLocalPort = config.SftpLocalPort
                     };
                 }
             }
@@ -250,6 +298,8 @@ namespace FtpManager.Api.Services
                     var config = col.FindOne(c => c.Id == id);
                     if (config == null) return;
 
+                    _sftpProvisioner.Deprovision(config);
+
                     // Stop if running
                     if (_instances.TryRemove(id, out var instance))
                     {
@@ -316,6 +366,35 @@ namespace FtpManager.Api.Services
             {
                 await instance.StopAsync();
             }
+        }
+
+        public FtpServerConfig ProvisionSftp(string id)
+        {
+            lock (_lock)
+            {
+                FtpServerConfig config;
+                using (var readDatabase = new LiteDatabase(_dbFilePath))
+                {
+                    config = readDatabase.GetCollection<FtpServerConfig>("servers")
+                        .FindOne(server => server.Id == id) ?? throw new KeyNotFoundException("Sunucu bulunamadı.");
+                }
+
+                var storage = ServerStorage.EnsureLayout(_ftpBaseRoot, config.Id);
+                _sftpProvisioner.Provision(config, storage.ChrootDirectory, storage.DataDirectory);
+
+                using (var writeDatabase = new LiteDatabase(_dbFilePath))
+                {
+                    writeDatabase.GetCollection<FtpServerConfig>("servers").Update(config);
+                }
+                return config;
+            }
+        }
+
+        private static bool IsRunningAsAdministrator()
+        {
+            if (!OperatingSystem.IsWindows()) return false;
+            var principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
 
         private static HostValidationResult ValidateHost(string host)

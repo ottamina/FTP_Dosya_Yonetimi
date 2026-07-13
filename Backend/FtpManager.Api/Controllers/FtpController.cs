@@ -3,6 +3,7 @@ using FtpManager.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -15,12 +16,21 @@ namespace FtpManager.Api.Controllers
         private readonly FtpService _ftpService;
         private readonly ILogService _customLogger;
         private readonly LocalFtpServer _localFtpServer;
+        private readonly AccessService _accessService;
+        private readonly NgrokTunnelService _ngrokTunnelService;
 
-        public FtpController(FtpService ftpService, ILogService customLogger, LocalFtpServer localFtpServer)
+        public FtpController(
+            FtpService ftpService,
+            ILogService customLogger,
+            LocalFtpServer localFtpServer,
+            AccessService accessService,
+            NgrokTunnelService ngrokTunnelService)
         {
             _ftpService = ftpService;
             _customLogger = customLogger;
             _localFtpServer = localFtpServer;
+            _accessService = accessService;
+            _ngrokTunnelService = ngrokTunnelService;
         }
 
         [HttpGet("list")]
@@ -326,7 +336,16 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersView);
                 var servers = _localFtpServer.GetServers();
+                if (!_accessService.HasPermission(HttpContext, PermissionKeys.ServersCredentials))
+                {
+                    foreach (var server in servers)
+                    {
+                        server.Password = string.Empty;
+                        server.SftpPassword = null;
+                    }
+                }
                 return Ok(servers);
             }
             catch (Exception ex)
@@ -340,6 +359,7 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
                 var created = _localFtpServer.AddServer(config);
                 return Ok(created);
             }
@@ -354,6 +374,7 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
                 _localFtpServer.DeleteServer(id);
                 return Ok(new { message = "Sunucu başarıyla silindi." });
             }
@@ -368,8 +389,77 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
                 _localFtpServer.StartServer(id);
                 return Ok(new { message = "Sunucu başarıyla başlatıldı." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("servers/{id}/sftp")]
+        public IActionResult ProvisionSftp(string id)
+        {
+            try
+            {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
+                var server = _localFtpServer.ProvisionSftp(id);
+                if (!_accessService.HasPermission(HttpContext, PermissionKeys.ServersCredentials))
+                {
+                    server.Password = string.Empty;
+                    server.SftpPassword = null;
+                }
+                return Ok(server);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpGet("sftp/tunnel")]
+        public async Task<IActionResult> GetSftpTunnel([FromQuery] int localPort = 2222)
+        {
+            try
+            {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersView);
+                return Ok(await _ngrokTunnelService.GetStatusAsync(localPort, HttpContext.RequestAborted));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("servers/{id}/sftp/tunnel/start")]
+        public async Task<IActionResult> StartSftpTunnel(string id)
+        {
+            try
+            {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
+                var server = _localFtpServer.GetServer(id) ?? throw new KeyNotFoundException("Sunucu bulunamadi.");
+                if (!server.SftpEnabled)
+                {
+                    throw new InvalidOperationException("Once bu sunucu icin SFTP erisimini hazirlayin.");
+                }
+
+                return Ok(await _ngrokTunnelService.StartAsync(server.SftpLocalPort, HttpContext.RequestAborted));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("sftp/tunnel/stop")]
+        public async Task<IActionResult> StopSftpTunnel([FromQuery] int localPort = 2222)
+        {
+            try
+            {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
+                return Ok(await _ngrokTunnelService.StopAsync(localPort, HttpContext.RequestAborted));
             }
             catch (Exception ex)
             {
@@ -382,6 +472,7 @@ namespace FtpManager.Api.Controllers
         {
             try
             {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
                 await _localFtpServer.StopServerAsync(id);
                 return Ok(new { message = "Sunucu başarıyla durduruldu." });
             }

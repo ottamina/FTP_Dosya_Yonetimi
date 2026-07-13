@@ -1,5 +1,7 @@
 # FTP Dosya Yönetimi
 
+> Ayrıntılı mimari, bütün servislerin açıklaması, FTP–SFTP–ngrok akışları, API referansı ve çok sayıda diyagram için [Eğitim ve Teknik Dokümantasyon Merkezi](docs/README.md) belgesinden başlayın.
+
 Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak için geliştirilmiş, tam yığın bir uygulamadır. React tabanlı arayüz; ASP.NET Core API, FluentFTP ile uzak sunucu bağlantıları ve yerleşik bir yerel FTP sunucusuyla birlikte çalışır.
 
 ## Öne çıkanlar
@@ -12,6 +14,8 @@ Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak 
 - Dosya ağacında arama, sürükle-bırak yükleme ve yükleme ilerleme takibi
 - Dosya işlemleri ve uygulama olayları için LiteDB ve JSON tabanlı loglar
 - Oturum, kullanıcı, rol ve izin yönetimi
+- Windows OpenSSH ile sunucuya özel, klasöre kısıtlı SFTP hesabı
+- Ngrok TCP tünelini arayüzden başlatma, durdurma ve dış bağlantı adresini görme
 
 ## Teknolojiler
 
@@ -44,6 +48,8 @@ Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak 
 - [.NET SDK 10](https://dotnet.microsoft.com/download)
 - Node.js 20 veya üzeri ve npm
 - Uzak bir FTP sunucusu (isteğe bağlı; uygulama yerel sunucu da oluşturabilir)
+- SFTP için Windows OpenSSH Server (isteğe bağlı)
+- İnternet tüneli için ngrok ve yapılandırılmış authtoken (isteğe bağlı)
 
 ## Hızlı başlangıç
 
@@ -105,9 +111,23 @@ API kök adresi: `http://localhost:5230/api`
 | FTP işlemleri | `GET /ftp/list`, `POST /ftp/upload`, `POST /ftp/upload-chunk`, `GET /ftp/download`, `POST /ftp/rename`, `DELETE /ftp/delete` |
 | Klasör ve loglar | `POST /ftp/create-folder`, `GET /ftp/logs/file`, `GET /ftp/logs/database` |
 | Sunucular | `GET/POST /ftp/servers`, `POST /ftp/servers/{id}/start`, `POST /ftp/servers/{id}/stop` |
+| SFTP ve ngrok | `POST /ftp/servers/{id}/sftp`, `GET /ftp/sftp/tunnel`, `POST /ftp/servers/{id}/sftp/tunnel/start`, `POST /ftp/sftp/tunnel/stop` |
 | Erişim yönetimi | `POST /access/login`, `GET /access/me`, kullanıcı ve rol CRUD uç noktaları |
 
 FTP istekleri, seçilen sunucu ve bağlanacak FTP hesabı için `X-FTP-Server-Id`, `X-FTP-Username` ve `X-FTP-Password` başlıklarını kullanır.
+
+## SFTP ve ngrok kullanımı
+
+SFTP hazırlama işlemi Windows hesabı, NTFS izinleri ve OpenSSH yapılandırmasını yönettiği için API'yi **Yönetici olarak** başlatmak gerekir. Uygulama her sunucu için ayrı bir SFTP kullanıcısı oluşturur; kullanıcı yalnızca o sunucunun `data` klasörüne yazabilir. OpenSSH yapılandırması değiştirilmeden önce yedeklenir, `sshd -t` ile doğrulanır ve doğrulama başarısız olursa geri alınır.
+
+Ngrok kullanmadan SFTP bağlantısı yerel olarak `127.0.0.1:<OpenSSH portu>` adresinden yapılır. İnternetten geçici erişim gerektiğinde:
+
+1. Bir ngrok hesabı oluşturup authtoken'ı bir kez yapılandırın: `ngrok config add-authtoken <TOKEN>`.
+2. Sunucu kartında **Kısıtlı SFTP erişimini hazırla** düğmesini kullanın.
+3. **İnternet tünelini aç** düğmesine basın.
+4. Arayüzde gösterilen ngrok host ve portunu, sunucu kartındaki SFTP kullanıcı adı ve parolasıyla kullanın.
+
+Ngrok adresi geçici olabilir. Tünel kapandığında internetten erişim de kapanır; yerel SFTP ve FTP dosyaları silinmez.
 
 ## Geliştirme komutları
 

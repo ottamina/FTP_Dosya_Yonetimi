@@ -15,8 +15,13 @@ function ServerManager({
   ftpServers,
   handleStartServer,
   handleStopServer,
+  handleProvisionSftp,
+  handleStartSftpTunnel,
+  handleStopSftpTunnel,
   handleDeleteServer,
   copyServerDetails,
+  copySftpDetails,
+  sftpTunnel,
   canManageServers = false,
   canViewCredentials = false
 }) {
@@ -62,6 +67,18 @@ function ServerManager({
                 <p className="mt-1.5 text-xs leading-5 text-gray-500">
                   Local FTP icin bu host bu bilgisayara ait olmalidir: 127.0.0.1, makinenin LAN IP'si veya bu makineye cozumlenen local hostname.
                 </p>
+                {/^(?:\d{1,3}\.){3}\d{1,3}$/.test(newServerHost) && !newServerHost.startsWith('127.') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const slug = (newServerName || 'ftp').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'ftp';
+                      setNewServerHost(`${slug}.${newServerHost}.nip.io`);
+                    }}
+                    className="mt-2 text-xs font-bold text-blue-600 hover:text-blue-700"
+                  >
+                    Ücretsiz LAN hostname oluştur (.nip.io)
+                  </button>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Port Numarası</label>
@@ -111,6 +128,29 @@ function ServerManager({
               <i className="fa-solid fa-list-ul text-blue-600"></i>
               Mevcut Sunucular ({ftpServers.length})
             </h3>
+
+            <div className={`rounded-xl border px-4 py-3 text-sm ${sftpTunnel.isRunning ? 'border-green-200 bg-green-50 text-green-800' : 'border-gray-200 bg-white text-gray-700'}`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-bold">Ngrok SFTP tuneli</div>
+                  <div className="mt-1 text-xs">
+                    {sftpTunnel.isRunning
+                      ? `Dis adres: ${sftpTunnel.publicHost}:${sftpTunnel.publicPort} -> 127.0.0.1:${sftpTunnel.localPort}`
+                      : sftpTunnel.status}
+                  </div>
+                </div>
+                {sftpTunnel.isRunning && (
+                  <button
+                    type="button"
+                    onClick={handleStopSftpTunnel}
+                    disabled={!canManageServers || !sftpTunnel.isOwnedByApplication}
+                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    {sftpTunnel.isOwnedByApplication ? 'Tuneli durdur' : 'Harici tunel'}
+                  </button>
+                )}
+              </div>
+            </div>
 
             {ftpServers.length === 0 ? (
               <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400 italic">
@@ -175,6 +215,40 @@ function ServerManager({
                           {server.hostWarning}
                         </div>
                       )}
+
+                      <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                        <div className="font-bold">Guvenli SFTP erisimi</div>
+                        {server.sftpEnabled ? (
+                          <div className="mt-2 space-y-2">
+                            <div>Kullanici: <strong>{server.sftpUsername}</strong></div>
+                            <div>{server.sftpStatus}</div>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => copySftpDetails(server)}
+                                disabled={!canViewCredentials}
+                                className="rounded border border-blue-200 bg-white px-2 py-1 font-bold text-blue-700 disabled:text-gray-400"
+                              >
+                                Bilgileri kopyala
+                              </button>
+                              {!sftpTunnel.isRunning && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartSftpTunnel(server.id)}
+                                  disabled={!canManageServers}
+                                  className="rounded bg-blue-600 px-2 py-1 font-bold text-white disabled:bg-gray-300"
+                                >
+                                  Internet tunelini ac
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => handleProvisionSftp(server.id, server.name)} disabled={!canManageServers} className="mt-1 font-bold text-blue-700 disabled:text-gray-400">
+                            Kisitli SFTP erisimini hazirla
+                          </button>
+                        )}
+                      </div>
 
                       {/* Action buttons */}
                       <div className="flex gap-2.5 pt-1">

@@ -18,7 +18,8 @@ namespace FtpManager.Api.Services
         {
             var dbDir = Path.Combine(Directory.GetCurrentDirectory(), "logs", "database");
             Directory.CreateDirectory(dbDir);
-            _dbFilePath = Path.Combine(dbDir, "ftp_manager.db");
+            var databasePath = Path.Combine(dbDir, "ftp_manager.db");
+            _dbFilePath = $"Filename={databasePath};Connection=shared";
             Initialize();
         }
 

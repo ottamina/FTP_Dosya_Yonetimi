@@ -13,5 +13,10 @@ namespace FtpManager.Api.Models
         public bool IsActive { get; set; } = false;
         public bool IsRunning { get; set; } = false; // Run state
         public string? HostWarning { get; set; }
+        public string? SftpUsername { get; set; }
+        public string? SftpPassword { get; set; }
+        public bool SftpEnabled { get; set; }
+        public string? SftpStatus { get; set; }
+        public int SftpLocalPort { get; set; } = 2222;
     }
 }

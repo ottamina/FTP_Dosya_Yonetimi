@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.NetworkInformation;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +18,7 @@ namespace FtpManager.Api.Services
         private readonly string _ftpRoot;
         private readonly ILogger _logger;
         private TcpListener? _listener;
+        private IPAddress? _boundAddress;
         private CancellationTokenSource? _cts;
         private Task? _runTask;
         private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
@@ -32,11 +34,7 @@ namespace FtpManager.Api.Services
             _logger = logger;
             
             // Define unique folder path for this FTP server instance
-            _ftpRoot = Path.Combine(baseFtpRoot, config.Id);
-            if (!Directory.Exists(_ftpRoot))
-            {
-                Directory.CreateDirectory(_ftpRoot);
-            }
+            _ftpRoot = ServerStorage.EnsureLayout(baseFtpRoot, config.Id).DataDirectory;
         }
 
         public void Start()
@@ -44,12 +42,13 @@ namespace FtpManager.Api.Services
             if (IsRunning) return;
 
             _cts = new CancellationTokenSource();
-            _listener = new TcpListener(IPAddress.Any, _config.Port);
+            _boundAddress = ResolveListenAddress(_config.Host);
+            _listener = new TcpListener(_boundAddress, _config.Port);
             
             try
             {
                 _listener.Start();
-                _logger.LogInformation("FTP Server '{Name}' started on port {Port}", _config.Name, _config.Port);
+                _logger.LogInformation("FTP Server '{Name}' started on {Host}:{Port}", _config.Name, _boundAddress, _config.Port);
                 _runTask = Task.Run(() => ListenAsync(_cts.Token));
             }
             catch (Exception ex)
@@ -219,7 +218,7 @@ namespace FtpManager.Api.Services
                         }
                         activeDataEndpoint = null;
 
-                        passiveListener = CreateStartedPassiveListener();
+                        passiveListener = CreateStartedPassiveListener(_boundAddress!);
                         int passivePort = ((IPEndPoint)passiveListener.LocalEndpoint).Port;
 
                         byte p1 = (byte)(passivePort / 256);
@@ -244,7 +243,7 @@ namespace FtpManager.Api.Services
                         }
                         activeDataEndpoint = null;
 
-                        passiveListener = CreateStartedPassiveListener();
+                        passiveListener = CreateStartedPassiveListener(_boundAddress!);
                         int passivePort = ((IPEndPoint)passiveListener.LocalEndpoint).Port;
 
                         await writer.WriteLineAsync($"229 Entering Extended Passive Mode (|||{passivePort}|)");
@@ -284,7 +283,7 @@ namespace FtpManager.Api.Services
                         string targetDir = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetDir.TrimStart('/')));
 
-                        if (Directory.Exists(physicalPath) && physicalPath.StartsWith(_ftpRoot))
+                        if (Directory.Exists(physicalPath) && IsWithinFtpRoot(physicalPath))
                         {
                             currentDirectory = targetDir;
                             await writer.WriteLineAsync("250 CWD successful");
@@ -299,7 +298,7 @@ namespace FtpManager.Api.Services
                         string targetDir = NormalizePath(currentDirectory, "..");
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetDir.TrimStart('/')));
 
-                        if (Directory.Exists(physicalPath) && physicalPath.StartsWith(_ftpRoot))
+                        if (Directory.Exists(physicalPath) && IsWithinFtpRoot(physicalPath))
                         {
                             currentDirectory = targetDir;
                             await writer.WriteLineAsync("250 CWD successful");
@@ -312,10 +311,15 @@ namespace FtpManager.Api.Services
                     else if (cmd == "MKD")
                     {
                         string targetDir = NormalizePath(currentDirectory, args);
-                        string physicalPath = Path.Combine(_ftpRoot, targetDir.TrimStart('/'));
+                        string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetDir.TrimStart('/')));
 
                         try
                         {
+                            if (!IsWithinFtpRoot(physicalPath))
+                            {
+                                await writer.WriteLineAsync("550 Access denied");
+                                continue;
+                            }
                             Directory.CreateDirectory(physicalPath);
                             await writer.WriteLineAsync($"257 \"{targetDir}\" directory created");
                         }
@@ -329,7 +333,7 @@ namespace FtpManager.Api.Services
                         string targetDir = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetDir.TrimStart('/')));
 
-                        if (Directory.Exists(physicalPath) && physicalPath.StartsWith(_ftpRoot) && physicalPath != _ftpRoot)
+                        if (Directory.Exists(physicalPath) && IsWithinFtpRoot(physicalPath) && physicalPath != _ftpRoot)
                         {
                             try
                             {
@@ -351,7 +355,7 @@ namespace FtpManager.Api.Services
                         string targetFile = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
 
-                        if (File.Exists(physicalPath) && physicalPath.StartsWith(_ftpRoot))
+                        if (File.Exists(physicalPath) && IsWithinFtpRoot(physicalPath))
                         {
                             try
                             {
@@ -379,7 +383,7 @@ namespace FtpManager.Api.Services
                         string targetFile = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
 
-                        if ((File.Exists(physicalPath) || Directory.Exists(physicalPath)) && physicalPath.StartsWith(_ftpRoot))
+                        if ((File.Exists(physicalPath) || Directory.Exists(physicalPath)) && IsWithinFtpRoot(physicalPath))
                         {
                             renameFromPath = physicalPath;
                             await writer.WriteLineAsync("350 Requested file action pending further information");
@@ -407,7 +411,7 @@ namespace FtpManager.Api.Services
                         string targetFile = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
 
-                        if (physicalPath.StartsWith(_ftpRoot))
+                        if (IsWithinFtpRoot(physicalPath))
                         {
                             try
                             {
@@ -450,7 +454,7 @@ namespace FtpManager.Api.Services
                         string targetFile = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
 
-                        if (File.Exists(physicalPath) && physicalPath.StartsWith(_ftpRoot))
+                        if (File.Exists(physicalPath) && IsWithinFtpRoot(physicalPath))
                         {
                             var fileInfo = new FileInfo(physicalPath);
                             await writer.WriteLineAsync($"213 {fileInfo.Length}");
@@ -465,7 +469,7 @@ namespace FtpManager.Api.Services
                         string targetFile = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
 
-                        if (File.Exists(physicalPath) && physicalPath.StartsWith(_ftpRoot))
+                        if (File.Exists(physicalPath) && IsWithinFtpRoot(physicalPath))
                         {
                             var fileInfo = new FileInfo(physicalPath);
                             await writer.WriteLineAsync($"213 {fileInfo.LastWriteTimeUtc:yyyyMMddHHmmss}");
@@ -500,7 +504,7 @@ namespace FtpManager.Api.Services
                                 listPath = NormalizePath(currentDirectory, args);
                             }
                             string physicalDir = Path.GetFullPath(Path.Combine(_ftpRoot, listPath.TrimStart('/')));
-                            if (Directory.Exists(physicalDir) && physicalDir.StartsWith(_ftpRoot))
+                            if (Directory.Exists(physicalDir) && IsWithinFtpRoot(physicalDir))
                             {
                                 if (cmd == "MLSD")
                                 {
@@ -570,7 +574,13 @@ namespace FtpManager.Api.Services
                             using var dataStream = passiveClient.GetStream();
 
                             string targetFile = NormalizePath(currentDirectory, args);
-                            string physicalPath = Path.Combine(_ftpRoot, targetFile.TrimStart('/'));
+                            string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
+
+                            if (!IsWithinFtpRoot(physicalPath))
+                            {
+                                await writer.WriteLineAsync("550 Access denied");
+                                continue;
+                            }
 
                             var parentDir = Path.GetDirectoryName(physicalPath);
                             if (parentDir != null && !Directory.Exists(parentDir))
@@ -610,7 +620,7 @@ namespace FtpManager.Api.Services
                         string targetFile = NormalizePath(currentDirectory, args);
                         string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
 
-                        if (File.Exists(physicalPath) && physicalPath.StartsWith(_ftpRoot))
+                        if (File.Exists(physicalPath) && IsWithinFtpRoot(physicalPath))
                         {
                             await writer.WriteLineAsync("150 File status okay; about to open data connection");
 
@@ -677,14 +687,48 @@ namespace FtpManager.Api.Services
             return IPAddress.Loopback;
         }
 
-        private static TcpListener CreateStartedPassiveListener()
+        private static IPAddress ResolveListenAddress(string host)
+        {
+            if (IPAddress.TryParse(host, out var parsedAddress) &&
+                parsedAddress.AddressFamily == AddressFamily.InterNetwork)
+            {
+                return parsedAddress;
+            }
+
+            foreach (var address in Dns.GetHostAddresses(host))
+            {
+                if (address.AddressFamily == AddressFamily.InterNetwork && IsLocalAddress(address))
+                {
+                    return address;
+                }
+            }
+
+            throw new InvalidOperationException($"Host bu bilgisayara ait bir IPv4 adresine çözümlenemedi: {host}.");
+        }
+
+        private static bool IsLocalAddress(IPAddress address)
+        {
+            if (IPAddress.IsLoopback(address)) return true;
+
+            foreach (var networkInterface in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                foreach (var unicastAddress in networkInterface.GetIPProperties().UnicastAddresses)
+                {
+                    if (unicastAddress.Address.Equals(address)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static TcpListener CreateStartedPassiveListener(IPAddress listenAddress)
         {
             for (var port = PassivePortMin; port <= PassivePortMax; port++)
             {
                 TcpListener? listener = null;
                 try
                 {
-                    listener = new TcpListener(IPAddress.Any, port);
+                    listener = new TcpListener(listenAddress, port);
                     listener.Start();
                     return listener;
                 }
@@ -759,9 +803,9 @@ namespace FtpManager.Api.Services
         private string NormalizePath(string current, string input)
         {
             if (string.IsNullOrEmpty(input)) return current;
-            if (input.StartsWith("/")) return input;
-
-            var parts = (current + "/" + input).Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+            input = input.Replace('\\', '/');
+            var combined = input.StartsWith('/') ? input : current + "/" + input;
+            var parts = combined.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
             var stack = new System.Collections.Generic.Stack<string>();
 
             foreach (var part in parts)
@@ -780,6 +824,15 @@ namespace FtpManager.Api.Services
             var array = stack.ToArray();
             Array.Reverse(array);
             return "/" + string.Join("/", array);
+        }
+
+        private bool IsWithinFtpRoot(string path)
+        {
+            var relativePath = Path.GetRelativePath(_ftpRoot, Path.GetFullPath(path));
+            return !Path.IsPathRooted(relativePath) &&
+                   relativePath != ".." &&
+                   !relativePath.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+                   !relativePath.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal);
         }
     }
 }
