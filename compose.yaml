@@ -1,0 +1,58 @@
+name: ${COMPOSE_PROJECT_NAME}
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Backend/FtpManager.Api/Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DisableHttpsRedirection: "true"
+      FTP_MANAGER_DOCKER: "true"
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+      SFTP_PORT: ${SFTP_PORT}
+      FTP_PASSIVE_PORT_MIN: ${FTP_PASSIVE_PORT_MIN}
+      FTP_PASSIVE_PORT_MAX: ${FTP_PASSIVE_PORT_MAX}
+      Ports__FtpDefault: ${FTP_PORT_MIN}
+      Ports__FtpMin: ${FTP_PORT_MIN}
+      Ports__FtpMax: ${FTP_PORT_MAX}
+    ports:
+      - "127.0.0.1:${API_PORT}:8080"
+      - "127.0.0.1:${SFTP_PORT}:${SFTP_PORT}"
+      - "127.0.0.1:${FTP_PORT_MIN}-${FTP_PORT_MAX}:${FTP_PORT_MIN}-${FTP_PORT_MAX}"
+      - "127.0.0.1:${FTP_PASSIVE_PORT_MIN}-${FTP_PASSIVE_PORT_MAX}:${FTP_PASSIVE_PORT_MIN}-${FTP_PASSIVE_PORT_MAX}"
+    volumes:
+      - ftp_manager_logs:/app/logs
+      - ftp_manager_uploads:/app/uploads
+      - ftp_manager_ssh:/etc/ssh
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 6
+    restart: unless-stopped
+    networks:
+      - app
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Frontend/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${UI_PORT}:8080"
+    restart: unless-stopped
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  ftp_manager_logs:
+  ftp_manager_uploads:
+  ftp_manager_ssh:

@@ -62,6 +62,12 @@ namespace FtpManager.Api.Services
                 StopOwnedProcess();
                 _lastError = string.Empty;
 
+                var authToken = Environment.GetEnvironmentVariable("NGROK_AUTHTOKEN");
+                if (string.IsNullOrWhiteSpace(authToken))
+                {
+                    throw new InvalidOperationException("Ngrok authtoken bulunamadi. Baslatmadan once NGROK_AUTHTOKEN ortam degiskenini ayarlayin.");
+                }
+
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = "ngrok",
@@ -71,6 +77,7 @@ namespace FtpManager.Api.Services
                     CreateNoWindow = true,
                 };
                 startInfo.ArgumentList.Add("tcp");
+                startInfo.ArgumentList.Add($"--authtoken={authToken}");
                 startInfo.ArgumentList.Add($"127.0.0.1:{localPort}");
                 startInfo.ArgumentList.Add("--log");
                 startInfo.ArgumentList.Add("stdout");
@@ -208,11 +215,15 @@ namespace FtpManager.Api.Services
             try
             {
                 using var document = JsonDocument.Parse(eventArgs.Data);
-                if (document.RootElement.TryGetProperty("lvl", out var level) && level.GetString() == "eror")
+                if (document.RootElement.TryGetProperty("lvl", out var level) &&
+                    (level.GetString() == "eror" || level.GetString() == "crit"))
                 {
-                    _lastError = document.RootElement.TryGetProperty("msg", out var message)
-                        ? message.GetString() ?? eventArgs.Data
-                        : eventArgs.Data;
+                    _lastError = document.RootElement.TryGetProperty("err", out var error) &&
+                        !string.IsNullOrWhiteSpace(error.GetString())
+                        ? error.GetString()!
+                        : document.RootElement.TryGetProperty("msg", out var message)
+                            ? message.GetString() ?? eventArgs.Data
+                            : eventArgs.Data;
                 }
             }
             catch (JsonException)

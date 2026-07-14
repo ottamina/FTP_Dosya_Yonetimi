@@ -226,9 +226,22 @@ namespace FtpManager.Api.Services
             lock (_lock)
             {
                 using var db = new LiteDatabase(_dbFilePath);
+                var rolesById = db.GetCollection<AppRole>("roles")
+                    .FindAll()
+                    .ToDictionary(x => x.Id, x => x.Name);
+
                 return db.GetCollection<AppUser>("users")
                     .FindAll()
-                    .Select(x => ToUserDto(db, x))
+                    .Select(user => new UserDto
+                    {
+                        Id = user.Id,
+                        FullName = user.FullName,
+                        Username = user.Username,
+                        RoleId = user.RoleId,
+                        RoleName = rolesById.GetValueOrDefault(user.RoleId, "Rolsuz"),
+                        IsActive = user.IsActive,
+                        CreatedAt = user.CreatedAt
+                    })
                     .OrderBy(x => x.FullName)
                     .ToList();
             }

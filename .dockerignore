@@ -1,0 +1,15 @@
+.git
+.vs
+.vscode
+.agents
+.codex
+**/bin
+**/obj
+**/node_modules
+**/dist
+artifacts
+Tests
+test_dummy.bin
+Backend/FtpManager.Api/logs
+Backend/FtpManager.Api/uploads
+.docker

@@ -9,6 +9,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Principal;
+using System.Linq;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using FtpManager.Api.Models;
@@ -22,14 +23,24 @@ namespace FtpManager.Api.Services
         private readonly ILogger<LocalFtpServer> _logger;
         private readonly ILoggerFactory _loggerFactory;
         private readonly OpenSshSftpProvisioner _sftpProvisioner;
+        private readonly int _defaultFtpPort;
+        private readonly int? _allowedFtpPortMin;
+        private readonly int? _allowedFtpPortMax;
         private readonly ConcurrentDictionary<string, FtpServerInstance> _instances = new();
         private readonly object _lock = new();
 
-        public LocalFtpServer(ILogger<LocalFtpServer> logger, ILoggerFactory loggerFactory, OpenSshSftpProvisioner sftpProvisioner)
+        public LocalFtpServer(
+            ILogger<LocalFtpServer> logger,
+            ILoggerFactory loggerFactory,
+            OpenSshSftpProvisioner sftpProvisioner,
+            IConfiguration configuration)
         {
             _logger = logger;
             _loggerFactory = loggerFactory;
             _sftpProvisioner = sftpProvisioner;
+            _defaultFtpPort = configuration.GetValue("Ports:FtpDefault", 2121);
+            _allowedFtpPortMin = configuration.GetValue<int?>("Ports:FtpMin");
+            _allowedFtpPortMax = configuration.GetValue<int?>("Ports:FtpMax");
             
             // Set up config database path
             var logsDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
@@ -39,7 +50,12 @@ namespace FtpManager.Api.Services
             _dbFilePath = $"Filename={databasePath};Connection=shared";
             
             var legacyFtpBaseRoot = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "ftp_root");
-            if (IsRunningAsAdministrator())
+            if (string.Equals(Environment.GetEnvironmentVariable("FTP_MANAGER_DOCKER"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                _ftpBaseRoot = legacyFtpBaseRoot;
+                Directory.CreateDirectory(_ftpBaseRoot);
+            }
+            else if (IsRunningAsAdministrator())
             {
                 _ftpBaseRoot = ServerStorage.GetSecureBaseRoot();
                 ServerStorage.MigrateLegacyBaseRoot(legacyFtpBaseRoot, _ftpBaseRoot);
@@ -85,7 +101,7 @@ namespace FtpManager.Api.Services
                             Id = "default",
                             Name = "Varsayılan FTP",
                             Host = "127.0.0.1",
-                            Port = 2121,
+                            Port = _defaultFtpPort,
                             Username = "ftpadmin",
                             Password = "admin123",
                             IsActive = true
@@ -247,6 +263,26 @@ namespace FtpManager.Api.Services
                 {
                     var col = db.GetCollection<FtpServerConfig>("servers");
                     ValidateHost(newConfig.Host);
+
+                    if (newConfig.Port == 0)
+                    {
+                        var firstPort = _allowedFtpPortMin ?? 2121;
+                        var lastPort = _allowedFtpPortMax ?? 2199;
+                        var usedPorts = col.FindAll().Select(server => server.Port).ToHashSet();
+                        newConfig.Port = Enumerable.Range(firstPort, lastPort - firstPort + 1)
+                            .FirstOrDefault(port => !usedPorts.Contains(port));
+                        if (newConfig.Port == 0)
+                        {
+                            throw new InvalidOperationException($"Bos FTP portu bulunamadi ({firstPort}-{lastPort}).");
+                        }
+                    }
+
+                    if (_allowedFtpPortMin.HasValue && _allowedFtpPortMax.HasValue &&
+                        (newConfig.Port < _allowedFtpPortMin.Value || newConfig.Port > _allowedFtpPortMax.Value))
+                    {
+                        throw new InvalidOperationException(
+                            $"Docker ortaminda FTP portu {_allowedFtpPortMin}-{_allowedFtpPortMax} araliginda olmalidir.");
+                    }
                     
                     // Ensure port is not already used
                     if (col.Exists(c => c.Port == newConfig.Port))
@@ -410,6 +446,11 @@ namespace FtpManager.Api.Services
             {
                 throw new InvalidOperationException(
                     $"Bu IP FTP hostu olarak kullanılamaz: {invalidAddress}. Bu bilgisayara atanmış gerçek bir IP, 127.0.0.1, LAN IP veya DNS ile bu makineye yönlenen bir domain girin.");
+            }
+
+            if (string.Equals(Environment.GetEnvironmentVariable("FTP_MANAGER_DOCKER"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return new HostValidationResult(null);
             }
 
             var localAddresses = GetLocalIPv4Addresses();

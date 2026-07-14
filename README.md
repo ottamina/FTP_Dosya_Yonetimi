@@ -2,8 +2,6 @@
 
 > Ayrıntılı mimari, bütün servislerin açıklaması, FTP–SFTP–ngrok akışları, API referansı ve çok sayıda diyagram için [Eğitim ve Teknik Dokümantasyon Merkezi](docs/README.md) belgesinden başlayın.
 
-> Arayüzdeki bütün kullanıcı eylemlerini planlayan ve çalıştıran iki ajanlı test altyapısı için [Uçtan Uca Test Sistemi](Tests/E2E/README.md) belgesine bakın.
-
 Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak için geliştirilmiş, tam yığın bir uygulamadır. React tabanlı arayüz; ASP.NET Core API, FluentFTP ile uzak sunucu bağlantıları ve yerleşik bir yerel FTP sunucusuyla birlikte çalışır.
 
 ## Öne çıkanlar
@@ -54,6 +52,28 @@ Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak 
 - İnternet tüneli için ngrok ve yapılandırılmış authtoken (isteğe bağlı)
 
 ## Hızlı başlangıç
+
+### Docker ile tek tıklama (onerilen)
+
+Windows'ta Docker Desktop kuruluysa proje kokundeki `Baslat.bat` dosyasina cift tiklayin. Ilk calistirmada image'lar derlenir, bos portlar otomatik secilir, servisler arka planda baslatilir ve tarayici acilir. Veritabani, loglar, FTP dosyalari ve OpenSSH anahtarlari Docker volume'lerinde kalici tutulur.
+
+Ayni islem terminalden de calistirilabilir:
+
+```powershell
+.\scripts\docker.ps1 start
+```
+
+Yardimci komutlar:
+
+```powershell
+.\scripts\docker.ps1 status
+.\scripts\docker.ps1 logs
+.\scripts\docker.ps1 stop
+```
+
+UI, API, SFTP, FTP kontrol ve FTP pasif veri portlari ilk baslatmada birlikte ve cakismayacak sekilde secilir. Secimler `.docker/runtime.env` dosyasinda yerel olarak saklanir; dosya Git'e eklenmez. Ayrintilar icin [Docker Kurulum ve Isletim Rehberi](docs/07_DOCKER_KURULUMU.md) belgesine bakin.
+
+### Yerel gelistirme
 
 İki terminal açın ve aşağıdaki komutları proje kök dizininden çalıştırın.
 

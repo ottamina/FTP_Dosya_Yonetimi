@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:5230/api/ftp';
+const API_ROOT = (import.meta.env.VITE_API_ROOT || '/api').replace(/\/$/, '');
+const API_BASE_URL = `${API_ROOT}/ftp`;
 
 export const ftpApi = {
   // 1. Belirtilen dizindeki dosya ve klasörleri getirir

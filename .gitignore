@@ -41,6 +41,8 @@ test_dummy.bin
 /Backend/FtpManager.Api/logs/
 /Backend/FtpManager.Api/uploads/
 /artifacts/
+/Tests/
+/.docker/runtime.env
 
 # IDE / Editor Files
 .vscode/

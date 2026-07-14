@@ -84,11 +84,12 @@ function ServerManager({
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Port Numarası</label>
                 <input 
                   type="number" 
-                  placeholder="Örn: 2122, 2123"
+                  placeholder="Boş bırakırsan otomatik seçilir"
                   value={newServerPort}
                   onChange={(e) => setNewServerPort(e.target.value)}
                   className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 focus:bg-white font-medium"
                 />
+                <p className="mt-1 text-[11px] text-gray-400">Docker ortamında boş ve benzersiz port otomatik atanır.</p>
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Kullanıcı Adı</label>

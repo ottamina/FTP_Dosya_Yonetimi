@@ -4,6 +4,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Controller Desteğini Ekleme
 builder.Services.AddControllers();
+builder.Services.AddHealthChecks();
 
 // 2. Swagger/OpenAPI Ayarları (Geliştirme aşamasında API'yi test etmek için)
 builder.Services.AddEndpointsApiExplorer();
@@ -23,16 +24,18 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("ReactCorsPolicy", policy =>
     {
-        policy.WithOrigins("http://localhost:5173") // Vite ile çalışan React uygulamasının adresi
-              .AllowAnyHeader()                     // Tüm HTTP header'larına (Content-Type vb.) izin ver
-              .AllowAnyMethod();                    // GET, POST, PUT, DELETE gibi tüm metotlara izin ver
+        var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+            ?? new[] { "http://localhost:5173" };
+        policy.WithOrigins(origins)
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 
 var app = builder.Build();
 
 // 6. HTTPS Yönlendirmesi
-if (!app.Environment.IsDevelopment())
+if (!app.Environment.IsDevelopment() && !app.Configuration.GetValue<bool>("DisableHttpsRedirection"))
 {
     app.UseHttpsRedirection();
 }
@@ -45,6 +48,7 @@ app.UseAuthorization();
 
 // 9. Rotaların Eşleştirilmesi
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 // 10. Uygulamayı Başlatma
 app.Run();

@@ -4,6 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -26,7 +27,8 @@ namespace FtpManager.Api.Services
         {
             if (!OperatingSystem.IsWindows())
             {
-                throw new PlatformNotSupportedException("Bu SFTP hazirlama akisi Windows OpenSSH icindir.");
+                ProvisionLinux(server, chrootDirectory, dataDirectory, rotatePassword);
+                return;
             }
 
             var principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());
@@ -84,6 +86,12 @@ namespace FtpManager.Api.Services
         {
             if (!server.SftpEnabled || string.IsNullOrWhiteSpace(server.SftpUsername)) return;
 
+            if (!OperatingSystem.IsWindows())
+            {
+                DeprovisionLinux(server);
+                return;
+            }
+
             var principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());
             if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
             {
@@ -116,6 +124,123 @@ namespace FtpManager.Api.Services
             _logger.LogInformation("SFTP account {Username} removed for server {ServerId}", server.SftpUsername, server.Id);
         }
 
+        private void ProvisionLinux(
+            FtpServerConfig server,
+            string chrootDirectory,
+            string dataDirectory,
+            bool rotatePassword)
+        {
+            if (!string.Equals(Environment.GetEnvironmentVariable("FTP_MANAGER_DOCKER"), "true", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new PlatformNotSupportedException("Linux SFTP hazirlama yalnizca Docker imaji icinde desteklenir.");
+            }
+
+            var accountSuffix = server.Id.Replace("-", string.Empty, StringComparison.Ordinal);
+            if (accountSuffix.Length > 12) accountSuffix = accountSuffix[..12];
+            var username = server.SftpUsername ?? $"sftp_{accountSuffix}";
+            var password = rotatePassword || string.IsNullOrWhiteSpace(server.SftpPassword)
+                ? GeneratePassword()
+                : server.SftpPassword;
+            var port = ReadConfiguredLinuxPort();
+
+            Directory.CreateDirectory(chrootDirectory);
+            Directory.CreateDirectory(dataDirectory);
+            if (RunProcess("id", "-u", username).ExitCode != 0)
+            {
+                Run("useradd", "--no-create-home", "--home-dir", $"/{ServerStorage.DataDirectoryName}", "--shell", "/usr/sbin/nologin", username);
+            }
+            RunWithInput("chpasswd", $"{username}:{password}{Environment.NewLine}");
+            Run("chown", "root:root", chrootDirectory);
+            Run("chmod", "755", chrootDirectory);
+            Run("chown", $"{username}:{username}", dataDirectory);
+            Run("chmod", "750", dataDirectory);
+
+            var configPath = GetLinuxSshdConfigPath();
+            var currentConfig = File.Exists(configPath)
+                ? File.ReadAllText(configPath)
+                : BuildLinuxBaseConfig(port);
+            var updatedConfig = UpsertManagedMatchBlock(currentConfig, username, chrootDirectory);
+            File.WriteAllText(configPath, updatedConfig, new UTF8Encoding(false));
+            RestartLinuxSshd(configPath);
+            ValidateSftpSession(username, password, port);
+
+            server.SftpUsername = username;
+            server.SftpPassword = password;
+            server.SftpEnabled = true;
+            server.SftpLocalPort = port;
+            server.SftpStatus = $"Hazir ve klasore kisitli (Docker OpenSSH, port {port})";
+            _logger.LogInformation("Docker SFTP account {Username} provisioned for server {ServerId}", username, server.Id);
+        }
+
+        private void DeprovisionLinux(FtpServerConfig server)
+        {
+            var configPath = GetLinuxSshdConfigPath();
+            if (File.Exists(configPath))
+            {
+                var currentConfig = File.ReadAllText(configPath);
+                File.WriteAllText(
+                    configPath,
+                    RemoveManagedMatchBlock(currentConfig, server.SftpUsername!),
+                    new UTF8Encoding(false));
+                RestartLinuxSshd(configPath);
+            }
+
+            if (RunProcess("id", "-u", server.SftpUsername!).ExitCode == 0)
+            {
+                Run("userdel", server.SftpUsername!);
+            }
+            _logger.LogInformation("Docker SFTP account {Username} removed for server {ServerId}", server.SftpUsername, server.Id);
+        }
+
+        private static string BuildLinuxBaseConfig(int port)
+        {
+            return string.Join(Environment.NewLine, new[]
+            {
+                $"Port {port}",
+                "ListenAddress 0.0.0.0",
+                "Protocol 2",
+                "HostKey /etc/ssh/ssh_host_rsa_key",
+                "HostKey /etc/ssh/ssh_host_ecdsa_key",
+                "HostKey /etc/ssh/ssh_host_ed25519_key",
+                "PasswordAuthentication yes",
+                "KbdInteractiveAuthentication no",
+                "UsePAM no",
+                "PermitRootLogin no",
+                "X11Forwarding no",
+                "AllowTcpForwarding no",
+                "Subsystem sftp internal-sftp",
+                "PidFile /run/sshd-ftp-manager.pid",
+                string.Empty
+            });
+        }
+
+        private static string GetLinuxSshdConfigPath() => "/etc/ssh/sshd_config_ftp_manager";
+
+        private static int ReadConfiguredLinuxPort()
+        {
+            return int.TryParse(Environment.GetEnvironmentVariable("SFTP_PORT"), out var port) && port is > 0 and <= 65535
+                ? port
+                : 2222;
+        }
+
+        private static void RestartLinuxSshd(string configPath)
+        {
+            Directory.CreateDirectory("/run/sshd");
+            Run("ssh-keygen", "-A");
+            Run("/usr/sbin/sshd", "-t", "-f", configPath);
+            var pidFile = "/run/sshd-ftp-manager.pid";
+            if (File.Exists(pidFile) && int.TryParse(File.ReadAllText(pidFile).Trim(), out var pid))
+            {
+                var stopResult = RunProcess("kill", pid.ToString());
+                if (stopResult.ExitCode != 0 && File.Exists($"/proc/{pid}"))
+                {
+                    throw new InvalidOperationException("Mevcut Docker OpenSSH sureci durdurulamadi.");
+                }
+            }
+            Run("/usr/sbin/sshd", "-f", configPath);
+        }
+
+        [SupportedOSPlatform("windows")]
         private static void ConfigureDirectoryPermissions(string username, string chrootDirectory, string dataDirectory)
         {
             Directory.CreateDirectory(chrootDirectory);
@@ -144,6 +269,7 @@ namespace FtpManager.Api.Services
             SetDirectoryAcl(dataDirectory, administratorsSid, systemSid, null, userSid, apiProcessSid);
         }
 
+        [SupportedOSPlatform("windows")]
         private static void SetDirectoryAcl(
             string path,
             SecurityIdentifier administratorsSid,
@@ -273,6 +399,36 @@ namespace FtpManager.Api.Services
             if (result.ExitCode != 0)
             {
                 var detail = string.Join(Environment.NewLine, result.StandardError, result.StandardOutput).Trim();
+                throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail) ? $"{fileName} islemi basarisiz oldu." : detail);
+            }
+        }
+
+        private static void RunWithInput(string fileName, string standardInput, params string[] arguments)
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true,
+            };
+            foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+            using var process = Process.Start(startInfo) ?? throw new InvalidOperationException($"{fileName} baslatilamadi.");
+            process.StandardInput.Write(standardInput);
+            process.StandardInput.Close();
+            var standardOutput = process.StandardOutput.ReadToEndAsync();
+            var standardError = process.StandardError.ReadToEndAsync();
+            if (!process.WaitForExit(30_000))
+            {
+                process.Kill(true);
+                throw new TimeoutException($"{fileName} islemi zaman asimina ugradi.");
+            }
+            Task.WaitAll(standardOutput, standardError);
+            if (process.ExitCode != 0)
+            {
+                var detail = string.Join(Environment.NewLine, standardError.Result, standardOutput.Result).Trim();
                 throw new InvalidOperationException(string.IsNullOrWhiteSpace(detail) ? $"{fileName} islemi basarisiz oldu." : detail);
             }
         }

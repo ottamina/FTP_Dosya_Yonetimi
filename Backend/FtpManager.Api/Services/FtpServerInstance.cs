@@ -22,8 +22,8 @@ namespace FtpManager.Api.Services
         private CancellationTokenSource? _cts;
         private Task? _runTask;
         private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
-        private const int PassivePortMin = 50000;
-        private const int PassivePortMax = 51000;
+        private static readonly int PassivePortMin = ReadPortEnvironmentVariable("FTP_PASSIVE_PORT_MIN", 50000);
+        private static readonly int PassivePortMax = ReadPortEnvironmentVariable("FTP_PASSIVE_PORT_MAX", 51000);
 
         public FtpServerConfig Config => _config;
         public bool IsRunning => _runTask != null && !_runTask.IsCompleted;
@@ -704,6 +704,16 @@ namespace FtpManager.Api.Services
 
         private IPAddress ResolvePassiveAddress(IPAddress controlLocalAddress)
         {
+            if (IsDockerRuntime())
+            {
+                var advertisedHost = Environment.GetEnvironmentVariable("FTP_ADVERTISED_HOST") ?? _config.Host;
+                if (IPAddress.TryParse(advertisedHost, out var advertisedAddress) &&
+                    advertisedAddress.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    return advertisedAddress;
+                }
+            }
+
             if (controlLocalAddress.AddressFamily == AddressFamily.InterNetwork &&
                 !IPAddress.Any.Equals(controlLocalAddress))
             {
@@ -715,6 +725,8 @@ namespace FtpManager.Api.Services
 
         private static IPAddress ResolveListenAddress(string host)
         {
+            if (IsDockerRuntime()) return IPAddress.Any;
+
             if (IPAddress.TryParse(host, out var parsedAddress) &&
                 parsedAddress.AddressFamily == AddressFamily.InterNetwork)
             {
@@ -730,6 +742,11 @@ namespace FtpManager.Api.Services
             }
 
             throw new InvalidOperationException($"Host bu bilgisayara ait bir IPv4 adresine çözümlenemedi: {host}.");
+        }
+
+        private static bool IsDockerRuntime()
+        {
+            return string.Equals(Environment.GetEnvironmentVariable("FTP_MANAGER_DOCKER"), "true", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsLocalAddress(IPAddress address)
@@ -766,6 +783,13 @@ namespace FtpManager.Api.Services
             }
 
             throw new SocketException((int)SocketError.AddressAlreadyInUse);
+        }
+
+        private static int ReadPortEnvironmentVariable(string name, int fallback)
+        {
+            return int.TryParse(Environment.GetEnvironmentVariable(name), out var port) && port is > 0 and <= 65535
+                ? port
+                : fallback;
         }
 
         private static IPEndPoint ParsePortEndpoint(string args)

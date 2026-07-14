@@ -10,8 +10,9 @@ import PreviewPanel from './components/PreviewPanel';
 import AccessLogin from './components/AccessLogin';
 import AccessManager from './components/AccessManager';
 
-const API_BASE_URL = 'http://localhost:5230/api/ftp';
-const ACCESS_API_BASE_URL = 'http://localhost:5230/api/access';
+const API_ROOT = (import.meta.env.VITE_API_ROOT || '/api').replace(/\/$/, '');
+const API_BASE_URL = `${API_ROOT}/ftp`;
+const ACCESS_API_BASE_URL = `${API_ROOT}/access`;
 
 function App() {
   // Navigation State
@@ -203,15 +204,20 @@ function App() {
 
   const fetchAccessData = useCallback(async () => {
     if (!appToken || !hasPermission('access.manage')) return;
-    const [usersResponse, rolesResponse, permissionsResponse] = await Promise.all([
-      axios.get(`${ACCESS_API_BASE_URL}/users`),
-      axios.get(`${ACCESS_API_BASE_URL}/roles`),
-      axios.get(`${ACCESS_API_BASE_URL}/permissions`)
-    ]);
-    setUsers(usersResponse.data);
-    setRoles(rolesResponse.data);
-    setPermissions(permissionsResponse.data);
-    setUserForm((prev) => ({ ...prev, roleId: prev.roleId || rolesResponse.data[0]?.id || '' }));
+    try {
+      const [usersResponse, rolesResponse, permissionsResponse] = await Promise.all([
+        axios.get(`${ACCESS_API_BASE_URL}/users`),
+        axios.get(`${ACCESS_API_BASE_URL}/roles`),
+        axios.get(`${ACCESS_API_BASE_URL}/permissions`)
+      ]);
+      setUsers(usersResponse.data);
+      setRoles(rolesResponse.data);
+      setPermissions(permissionsResponse.data);
+      setUserForm((prev) => ({ ...prev, roleId: prev.roleId || rolesResponse.data[0]?.id || '' }));
+    } catch (error) {
+      if (error.response?.status !== 401) throw error;
+      showToast('Yetki verileri icin oturum dogrulanamadi. Sayfayi yenileyip tekrar deneyin.', 'error');
+    }
   }, [appToken, hasPermission]);
 
   const refreshCurrentUser = useCallback(async () => {
@@ -337,13 +343,13 @@ function App() {
   // Server management functions
   const handleCreateServer = async (e) => {
     e.preventDefault();
-    if (!newServerName || !newServerHost || !newServerPort || !newServerUser || !newServerPass) {
+    if (!newServerName || !newServerHost || !newServerUser || !newServerPass) {
       showToast('Lütfen tüm alanları doldurun.', 'error');
       return;
     }
 
-    const portNum = parseInt(newServerPort, 10);
-    if (isNaN(portNum) || portNum <= 0 || portNum > 65535) {
+    const portNum = newServerPort ? parseInt(newServerPort, 10) : 0;
+    if (isNaN(portNum) || portNum < 0 || portNum > 65535) {
       showToast('Lütfen geçerli bir port girin (1-65535).', 'error');
       return;
     }
