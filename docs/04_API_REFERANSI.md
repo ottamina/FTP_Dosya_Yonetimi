@@ -2,11 +2,12 @@
 
 ## 1. Temel adresler
 
-| Alan | Adres |
-| --- | --- |
-| FTP/dosya API | `http://localhost:5230/api/ftp` |
-| Uygulama erişim API | `http://localhost:5230/api/access` |
-| Frontend geliştirme | `http://localhost:5173` |
+| Çalışma modu | UI | API |
+| --- | --- | --- |
+| Docker | `http://localhost:<UI_PORT>` | Tarayıcıdan aynı origin üzerinde `/api`; doğrudan tanılama için `http://localhost:<API_PORT>/api` |
+| Yerel geliştirme | `http://localhost:5173` | `http://localhost:5230/api` |
+
+Docker'daki `UI_PORT` ve `API_PORT` değerleri `.docker/runtime.env` dosyasında bulunur. Frontend production kodu varsayılan olarak göreli `/api` kökünü kullanır; Nginx bunu Compose ağındaki `backend:8080` adresine yönlendirir.
 
 ## 2. Kimlik header'ları
 
@@ -85,16 +86,16 @@ Mevcut arayüz `logs.view` izni yoksa bunları istemez; backend controller taraf
 
 | Metot | Yol | Görev | Gerekli izin |
 | --- | --- | --- | --- |
-| GET | `/api/ftp/sftp/tunnel?localPort=2222` | Tünel durumunu keşfet | `servers.view` |
+| GET | `/api/ftp/sftp/tunnel?localPort={SFTP_PORT}` | Tünel durumunu keşfet | `servers.view` |
 | POST | `/api/ftp/servers/{id}/sftp/tunnel/start` | Sunucunun SSH portuna ngrok TCP aç | `servers.manage` |
-| POST | `/api/ftp/sftp/tunnel/stop?localPort=2222` | Uygulamanın açtığı tüneli kapat | `servers.manage` |
+| POST | `/api/ftp/sftp/tunnel/stop?localPort={SFTP_PORT}` | Uygulamanın açtığı tüneli kapat | `servers.manage` |
 
 ## 8. Temel istek örnekleri
 
 ### Uygulama girişi
 
 ```http
-POST http://localhost:5230/api/access/login
+POST {{API_ROOT}}/access/login
 Content-Type: application/json
 
 {
@@ -106,7 +107,7 @@ Content-Type: application/json
 ### FTP kökünü listeleme
 
 ```http
-GET http://localhost:5230/api/ftp/list?path=/
+GET {{API_ROOT}}/ftp/list?path=/
 Authorization: Bearer APP_TOKEN
 X-FTP-Server-Id: SERVER_ID
 X-FTP-Username: FTP_USER
@@ -116,26 +117,30 @@ X-FTP-Password: FTP_PASSWORD
 ### Sunucu oluşturma
 
 ```http
-POST http://localhost:5230/api/ftp/servers
+POST {{API_ROOT}}/ftp/servers
 Authorization: Bearer APP_TOKEN
 Content-Type: application/json
 
 {
   "name": "Arşiv",
   "host": "127.0.0.1",
-  "port": 2123,
+  "port": 0,
   "username": "archive",
   "password": "...",
   "isActive": true
 }
 ```
 
+Docker modunda `port: 0` gönderildiğinde backend ayrılmış FTP port aralığındaki ilk boş portu atar. Yerel geliştirmede kullanılacak portu açıkça verin.
+
 ### SFTP hazırlama
 
 ```http
-POST http://localhost:5230/api/ftp/servers/SERVER_ID/sftp
+POST {{API_ROOT}}/ftp/servers/SERVER_ID/sftp
 Authorization: Bearer APP_TOKEN
 ```
+
+Bu örneklerde `API_ROOT`, Docker UI üzerinden çağrıda `/api`; Docker doğrudan tanılama portunda `http://localhost:<API_PORT>/api`; yerel geliştirmede `http://localhost:5230/api` değeridir.
 
 ## 9. Model ilişkileri
 
@@ -199,4 +204,3 @@ flowchart TD
     Try -->|Oturum/kimlik sorunu| Unauth["401 Unauthorized"]
     Try -->|Dosya/FTP beklenmeyen hata| Server["500 Internal Server Error"]
 ```
-

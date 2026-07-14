@@ -29,13 +29,13 @@ flowchart TB
 
     subgraph Transport["Aktarım katmanı"]
         BuiltInFtp["FtpServerInstance"]
-        OpenSsh["Windows OpenSSH"]
+        OpenSsh["Linux veya Windows OpenSSH"]
         Ngrok["ngrok TCP tüneli"]
     end
 
     subgraph Storage["Veri katmanı"]
         LiteDb["LiteDB"]
-        Data["C:/ProgramData/FtpManager/ftp_root/{serverId}/data"]
+        Data["Docker volume veya C:/ProgramData/.../{serverId}/data"]
         LogFiles["JSONL + metin logları"]
     end
 
@@ -63,7 +63,7 @@ flowchart LR
     B --> C["İş kuralları\nService'ler"]
     C --> D["Protokoller\nFTP, SFTP, TCP"]
     C --> E["Kalıcılık\nLiteDB ve dosya sistemi"]
-    D --> F["Windows servisleri\nOpenSSH ve yerel hesaplar"]
+    D --> F["İşletim sistemi\nLinux/Windows OpenSSH ve hesaplar"]
 ```
 
 | Katman | Ana dosyalar | Sorumluluk |
@@ -79,11 +79,11 @@ flowchart LR
 ```mermaid
 flowchart TB
     UI["Web arayüzü"] -->|"HTTP isteği"| API["API"]
-    API -->|"FluentFTP / 127.0.0.1:212x"| FTP["Yerel FTP sunucusu"]
+    API -->|"FluentFTP / container içi veya 127.0.0.1"| FTP["Yerel FTP sunucusu"]
     FTP --> DATA["Ortak data klasörü"]
 
     FZ["FileZilla"] -->|"Şifreli SFTP"| PUBLIC["ngrok host:port"]
-    PUBLIC -->|"TCP yönlendirme"| SSH["127.0.0.1:2222 OpenSSH"]
+    PUBLIC -->|"TCP yönlendirme"| SSH["Yapılandırılmış SFTP portu / OpenSSH"]
     SSH --> DATA
 ```
 
@@ -98,14 +98,16 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    ROOT["C:/ProgramData/FtpManager/ftp_root"]
-    ROOT --> S1["default"]
-    ROOT --> S2["ca8f... serverId"]
-    S1 --> D1["data"]
-    S2 --> D2["data"]
-    D1 --> F1["Varsayılan FTP dosyaları"]
-    D2 --> F2["Özel sunucu dosyaları"]
+    MODE{"Çalışma modu"}
+    MODE -->|"Docker"| VOL["ftp_manager_uploads volume'u\n/app/uploads/ftp_root"]
+    MODE -->|"Yerel Windows"| WIN["C:/ProgramData/FtpManager/ftp_root"]
+    VOL --> S1["default/data"]
+    VOL --> S2["serverId/data"]
+    WIN --> S1
+    WIN --> S2
 ```
+
+LiteDB ve loglar Docker'da `ftp_manager_logs`, FTP/SFTP dosyaları `ftp_manager_uploads`, OpenSSH anahtarları ve yapılandırması `ftp_manager_ssh` volume'ünde tutulur. Container yeniden oluşturulsa da bu volume'ler korunur. Yerel Windows modunda veritabanı ve loglar proje altındaki `Backend/FtpManager.Api/logs`, güvenli FTP kökü ise `C:/ProgramData/FtpManager/ftp_root` konumundadır.
 
 Her sunucu kendi kimliği altında ayrılır. `ServerStorage.EnsureLayout` şu sözleşmeyi korur:
 
@@ -133,7 +135,7 @@ flowchart LR
 | Uygulama kullanıcısı | LiteDB `users` | Panel girişi ve rol tabanlı özellikler |
 | Uygulama oturumu | LiteDB `sessions` | `Authorization: Bearer ...` |
 | FTP hesabı | LiteDB `servers` | FluentFTP ve yerel FTP `USER/PASS` |
-| SFTP hesabı | LiteDB + Windows yerel hesap veritabanı | OpenSSH parola doğrulaması |
+| SFTP hesabı | LiteDB + Docker Linux hesabı veya Windows yerel hesabı | OpenSSH parola doğrulaması |
 
 ## 6. Süreç ve servis yaşam döngüsü
 
@@ -157,14 +159,15 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    Browser["Tarayıcı"] -->|"5173"| Vite["Vite geliştirme sunucusu"]
-    Vite -->|"HTTP 5230"| Api["ASP.NET Core"]
-    Api -->|"FTP 2121, 2122..."| Ftp["Yerel FTP instance'ları"]
-    Ftp -->|"PASV 50000-51000"| DataChannel["FTP veri kanalı"]
-    Ngrok["ngrok"] -->|"TCP"| Ssh["OpenSSH 2222"]
+    Browser["Tarayıcı"] -->|"Dinamik UI_PORT"| Nginx["Docker Nginx"]
+    Nginx -->|"/api → backend:8080"| Api["ASP.NET Core"]
+    Dev["Yerel geliştirme"] -->|"5173 → 5230"| Api
+    Api -->|"Dinamik FTP_PORT_MIN-MAX"| Ftp["Yerel FTP instance'ları"]
+    Ftp -->|"Dinamik PASV aralığı"| DataChannel["FTP veri kanalı"]
+    Ngrok["ngrok"] -->|"TCP"| Ssh["Dinamik SFTP_PORT"]
 ```
 
-FTP iki kanal kullanır: komut kanalı (`2121`, `2122` gibi) ve listeleme/yükleme için veri kanalı (`50000–51000`). SFTP ise tek SSH bağlantısı üzerinden çalışır.
+Docker portları ilk çalıştırmada boş bloklardan seçilip `.docker/runtime.env` dosyasına yazılır; sonraki başlatmalarda aynı değerler kullanılır. Yerel geliştirme varsayılanları Vite için `5173`, API için `5230`, ilk FTP instance'ı için `2121`, SFTP için `2222` ve pasif veri kanalı için `50000–51000` aralığıdır. FTP her iki modda da kontrol ve veri olmak üzere iki kanal kullanır; SFTP tek SSH bağlantısı üzerinden çalışır.
 
 ## 8. Bağımlılık yönü
 
@@ -177,11 +180,12 @@ flowchart TD
     AC["AccessController"] --> AS
     LFS --> INST["FtpServerInstance"]
     LFS --> PROV["OpenSshSftpProvisioner"]
-    PROV --> WU["WindowsLocalUserManager"]
+    PROV --> OS{"İşletim sistemi"}
+    OS -->|"Windows"| WU["WindowsLocalUserManager"]
+    OS -->|"Docker/Linux"| LU["useradd + chpasswd + Linux izinleri"]
     PROV --> SS["ServerStorage"]
     FS --> FL["FluentFTP"]
     PROV --> SSHNET["SSH.NET doğrulama istemcisi"]
 ```
 
-Bu diyagram, bir hata gördüğünüzde nereden başlamanız gerektiğini de söyler. Örneğin FileZilla parolayı kabul edip klasörü açamıyorsa `NgrokTunnelService` değil, `OpenSshSftpProvisioner` ve NTFS ACL katmanı incelenmelidir.
-
+Bu diyagram, bir hata gördüğünüzde nereden başlamanız gerektiğini de söyler. Örneğin FileZilla parolayı kabul edip klasörü açamıyorsa `NgrokTunnelService` yerine `OpenSshSftpProvisioner` incelenir; Docker'da Linux sahiplik/chroot ayarları, yerel Windows'ta NTFS ACL katmanı kontrol edilir.

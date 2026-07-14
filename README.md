@@ -14,7 +14,7 @@ Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak 
 - Dosya ağacında arama, sürükle-bırak yükleme ve yükleme ilerleme takibi
 - Dosya işlemleri ve uygulama olayları için LiteDB ve JSON tabanlı loglar
 - Oturum, kullanıcı, rol ve izin yönetimi
-- Windows OpenSSH ile sunucuya özel, klasöre kısıtlı SFTP hesabı
+- Windows'ta yerel OpenSSH, Docker'da Linux OpenSSH ile sunucuya özel ve klasöre kısıtlı SFTP hesabı
 - Ngrok TCP tünelini arayüzden başlatma, durdurma ve dış bağlantı adresini görme
 
 ## Teknolojiler
@@ -40,30 +40,41 @@ Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak 
 ├── Frontend/
 │   ├── src/components/      # Dosya gezgini ve yönetim ekranları
 │   └── src/services/        # API istemcisi
+├── compose.yaml             # Frontend, API, FTP ve SFTP Docker servis tanımı
+├── Baslat.bat               # Docker ortamını derler ve başlatır
+├── Durdur.bat               # Container'ları kaldırır, volume'leri korur
+├── scripts/docker.ps1       # Port seçimi ve Compose yaşam döngüsü
+├── docs/                    # Mimari, API, işletim ve Docker rehberleri
 └── README.md
 ```
 
 ## Gereksinimler
 
+Önerilen Docker çalışma modu için:
+
+- Docker Desktop ve WSL2
+
+Yerel geliştirme modu için:
+
 - [.NET SDK 10](https://dotnet.microsoft.com/download)
 - Node.js 20 veya üzeri ve npm
-- Uzak bir FTP sunucusu (isteğe bağlı; uygulama yerel sunucu da oluşturabilir)
-- SFTP için Windows OpenSSH Server (isteğe bağlı)
-- İnternet tüneli için ngrok ve yapılandırılmış authtoken (isteğe bağlı)
+- SFTP kullanılacaksa Windows OpenSSH Server ve yönetici yetkisi
+
+Her iki modda da uzak bir FTP sunucusu isteğe bağlıdır; uygulama kendi yerel FTP sunucusunu oluşturabilir. İnternet tüneli kullanılacaksa ayrıca bir ngrok authtoken gerekir.
 
 ## Hızlı başlangıç
 
-### Docker ile tek tıklama (onerilen)
+### Docker ile tek tıklama (önerilen)
 
-Windows'ta Docker Desktop kuruluysa proje kokundeki `Baslat.bat` dosyasina cift tiklayin. Ilk calistirmada image'lar derlenir, bos portlar otomatik secilir, servisler arka planda baslatilir ve tarayici acilir. Veritabani, loglar, FTP dosyalari ve OpenSSH anahtarlari Docker volume'lerinde kalici tutulur.
+Windows'ta Docker Desktop kuruluysa proje kökündeki `Baslat.bat` dosyasına çift tıklayın. İlk çalıştırmada imajlar derlenir, boş portlar otomatik seçilir, servisler arka planda başlatılır ve tarayıcı açılır. Veritabanı, loglar, FTP dosyaları ve OpenSSH anahtarları Docker volume'lerinde kalıcı tutulur.
 
-Ayni islem terminalden de calistirilabilir:
+Aynı işlem terminalden de çalıştırılabilir:
 
 ```powershell
 .\scripts\docker.ps1 start
 ```
 
-Yardimci komutlar:
+Yardımcı komutlar:
 
 ```powershell
 .\scripts\docker.ps1 status
@@ -71,13 +82,13 @@ Yardimci komutlar:
 .\scripts\docker.ps1 stop
 ```
 
-UI, API, SFTP, FTP kontrol ve FTP pasif veri portlari ilk baslatmada birlikte ve cakismayacak sekilde secilir. Secimler `.docker/runtime.env` dosyasinda yerel olarak saklanir; dosya Git'e eklenmez. Ayrintilar icin [Docker Kurulum ve Isletim Rehberi](docs/07_DOCKER_KURULUMU.md) belgesine bakin.
+UI, API, SFTP, FTP kontrol ve FTP pasif veri portları ilk başlatmada birlikte ve çakışmayacak şekilde seçilir. Seçimler `.docker/runtime.env` dosyasında yerel olarak saklanır; dosya Git'e ve Docker build context'ine eklenmez. Kaynak kod değiştiğinde `Baslat.bat` imajları yeniden derler ve yalnızca değişen servislerin container'larını yeniler; kalıcı volume'ler korunur. Ayrıntılar için [Docker Kurulum ve İşletim Rehberi](docs/07_DOCKER_KURULUMU.md) belgesine bakın.
 
-### Yerel gelistirme
+### Yerel geliştirme
 
 İki terminal açın ve aşağıdaki komutları proje kök dizininden çalıştırın.
 
-### 1. API'yi başlatın
+#### 1. API'yi başlatın
 
 ```powershell
 dotnet run --project .\Backend\FtpManager.Api
@@ -85,17 +96,18 @@ dotnet run --project .\Backend\FtpManager.Api
 
 Geliştirme profili API'yi varsayılan olarak `http://localhost:5230` adresinde başlatır.
 
-### 2. Arayüzü başlatın
+#### 2. Arayüzü başlatın
 
 ```powershell
 cd .\Frontend
 npm install
+$env:VITE_API_ROOT = 'http://localhost:5230/api'
 npm run dev
 ```
 
 Vite tarafından gösterilen adresi açın; varsayılan adres genellikle `http://localhost:5173` olur. API, bu kökenden gelen istekler için CORS yapılandırmasına sahiptir.
 
-### 3. Uygulamaya giriş yapın
+#### 3. Uygulamaya giriş yapın
 
 İlk çalıştırmada aşağıdaki varsayılan yönetici hesabı oluşturulur:
 
@@ -126,7 +138,7 @@ Yerleşik izinler şunları kapsar:
 
 ## API özeti
 
-API kök adresi: `http://localhost:5230/api`
+Docker modunda tarayıcı API'ye UI ile aynı origin üzerindeki `/api` yolundan erişir; Nginx isteği `backend:8080` adresine proxy eder. Yerel geliştirmede doğrudan API kökü `http://localhost:5230/api` olur. Docker'ın hosta açtığı tanılama portu `.docker/runtime.env` içindeki `API_PORT` değeridir.
 
 | Alan | Bazı uç noktalar |
 | --- | --- |
@@ -140,11 +152,16 @@ FTP istekleri, seçilen sunucu ve bağlanacak FTP hesabı için `X-FTP-Server-Id
 
 ## SFTP ve ngrok kullanımı
 
-SFTP hazırlama işlemi Windows hesabı, NTFS izinleri ve OpenSSH yapılandırmasını yönettiği için API'yi **Yönetici olarak** başlatmak gerekir. Uygulama her sunucu için ayrı bir SFTP kullanıcısı oluşturur; kullanıcı yalnızca o sunucunun `data` klasörüne yazabilir. OpenSSH yapılandırması değiştirilmeden önce yedeklenir, `sshd -t` ile doğrulanır ve doğrulama başarısız olursa geri alınır.
+SFTP hazırlama işletim sistemine göre iki farklı yol izler:
+
+- **Docker:** Backend container'ı Linux kullanıcısını, chroot klasörünü ve container içindeki OpenSSH yapılandırmasını yönetir. Hostta OpenSSH kurulumu veya yönetici PowerShell'i gerekmez.
+- **Yerel Windows:** API, Windows hesabı, NTFS izinleri ve Windows OpenSSH yapılandırmasını yönettiği için **Yönetici olarak** çalıştırılmalıdır.
+
+Her iki modda da her sunucu için ayrı bir SFTP kullanıcısı oluşturulur ve kullanıcı yalnızca ilgili sunucunun `data` klasörüne yazabilir. Yapılandırma `sshd -t` ile doğrulanmadan SSH servisi devreye alınmaz.
 
 Ngrok kullanmadan SFTP bağlantısı yerel olarak `127.0.0.1:<OpenSSH portu>` adresinden yapılır. İnternetten geçici erişim gerektiğinde:
 
-1. Bir ngrok hesabı oluşturup authtoken'ı bir kez yapılandırın: `ngrok config add-authtoken <TOKEN>`.
+1. Bir ngrok hesabı oluşturup hostta bir kez `ngrok config add-authtoken <TOKEN>` çalıştırın. Docker başlatıcısı standart ve Microsoft Store config konumlarındaki kayıtlı token'ı otomatik olarak container'a aktarır.
 2. Sunucu kartında **Kısıtlı SFTP erişimini hazırla** düğmesini kullanın.
 3. **İnternet tünelini aç** düğmesine basın.
 4. Arayüzde gösterilen ngrok host ve portunu, sunucu kartındaki SFTP kullanıcı adı ve parolasıyla kullanın.
@@ -154,6 +171,12 @@ Ngrok adresi geçici olabilir. Tünel kapandığında internetten erişim de kap
 ## Geliştirme komutları
 
 ```powershell
+# Docker imajlarını güncel kodla yeniden derle ve servisleri başlat
+.\scripts\docker.ps1 start
+
+# Docker servis durumunu gör
+.\scripts\docker.ps1 status
+
 # Arayüzü üretim için derle
 cd .\Frontend
 npm run build
@@ -168,7 +191,8 @@ dotnet build .\Backend\FtpManager.Api
 ## Güvenlik notları
 
 - FTP şifreleri ve uygulama veritabanı yerel geliştirme verisi olarak değerlendirilmelidir; depoya eklenmemelidir.
-- `logs/`, `uploads/`, derleme klasörleri ve test dosyaları `.gitignore` ile dışarıda bırakılır.
+- `logs/`, `uploads/`, `.docker/runtime.env`, derleme klasörleri ve test dosyaları `.gitignore` ile dışarıda bırakılır; aynı yerel içerikler `.dockerignore` ile imajlara da alınmaz.
+- Docker volume'leri kalıcıdır ancak yedek değildir; önemli veriler ayrıca yedeklenmelidir.
 - FTP, şifreleri düz metinle iletebilir. İnternet üzerinden kullanım için FTPS/SFTP ve uygun ağ güvenliği tercih edilmelidir.
 
 ## Lisans

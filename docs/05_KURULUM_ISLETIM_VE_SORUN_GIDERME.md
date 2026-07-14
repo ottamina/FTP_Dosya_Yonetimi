@@ -2,35 +2,49 @@
 
 ## 1. Gereksinimler
 
-- Windows 10/11 veya Windows Server
-- .NET SDK 10
-- Node.js 20+ ve npm
-- SFTP için Windows OpenSSH Server
-- Dış erişim için ngrok ve yapılandırılmış authtoken
-- SFTP hazırlarken yönetici yetkisi
+| Çalışma modu | Zorunlu | Yalnız SFTP/ngrok için |
+| --- | --- | --- |
+| Docker (önerilen) | Windows 10/11, WSL2 ve Docker Desktop | ngrok kullanılıyorsa `NGROK_AUTHTOKEN` |
+| Yerel geliştirme | .NET SDK 10, Node.js 20+ ve npm | Windows OpenSSH Server, ngrok ve SFTP hazırlarken yönetici yetkisi |
+
+Docker modunda .NET SDK, Node.js, OpenSSH ve ngrok hosta ayrıca kurulmaz; imajların içinde bulunur.
 
 ## 2. Kurulum resmi
 
 ```mermaid
 flowchart TD
-    Dotnet[".NET 10 kur"] --> Backend["Backend restore/build"]
-    Node["Node.js kur"] --> Frontend["npm install"]
-    OpenSsh["OpenSSH Server kur"] --> Admin["Backend'i yönetici aç"]
-    Ngrok["ngrok kur + authtoken"] --> Tunnel["İsteğe bağlı dış tünel"]
-    Backend --> Run
-    Frontend --> Run["Uygulamayı çalıştır"]
-    Admin --> Run
+    Mode{"Çalışma modu"}
+    Mode -->|"Docker"| Desktop["Docker Desktop + WSL2"]
+    Desktop --> Start["Baslat.bat"]
+    Start --> Compose["İmajları derle + Compose servislerini başlat"]
+    Mode -->|"Yerel geliştirme"| SDK[".NET 10 + Node.js"]
+    SDK --> Dev["dotnet run + npm run dev"]
+    Dev --> WinSftp["SFTP için Windows OpenSSH + yönetici yetkisi"]
 ```
 
-## 3. Geliştirme ortamını çalıştırma
+## 3. Ortamı çalıştırma
 
-### Backend
+### Docker ile normal kullanım
+
+```powershell
+.\Baslat.bat
+```
+
+Komut imajları güncel kaynak kodla yeniden derler, daha önce `.docker/runtime.env` içine ayrılan portları kullanır ve uygulamayı açar. Kod/imaj değişmediyse mevcut container çalışmaya devam eder; değişen servis varsa Compose o container'ı yenisiyle değiştirir. `ftp_manager_logs`, `ftp_manager_uploads` ve `ftp_manager_ssh` volume'leri korunur.
+
+Durum ve loglar:
+
+```powershell
+.\scripts\docker.ps1 status
+.\scripts\docker.ps1 logs
+```
+
+### Yerel geliştirme — backend
 
 SFTP kullanacaksanız PowerShell'i **Yönetici olarak** açın:
 
 ```powershell
-cd "C:\Users\osman.teksoy\Documents\FTP_Dosya_Yönetimi\Backend\FtpManager.Api"
-dotnet run
+dotnet run --project .\Backend\FtpManager.Api
 ```
 
 Beklenen adres:
@@ -39,11 +53,12 @@ Beklenen adres:
 http://localhost:5230
 ```
 
-### Frontend
+### Yerel geliştirme — frontend
 
 ```powershell
-cd "C:\Users\osman.teksoy\Documents\FTP_Dosya_Yönetimi\Frontend"
+cd .\Frontend
 npm install
+$env:VITE_API_ROOT = 'http://localhost:5230/api'
 npm run dev
 ```
 
@@ -64,7 +79,7 @@ flowchart TD
     Sftp -->|Hayır| Done["Yerel kullanım"]
     Sftp -->|Evet| Prepare["Kısıtlı SFTP hazırla"]
     Prepare --> Ngrok{"Farklı ağdan erişim?"}
-    Ngrok -->|Hayır| Local["127.0.0.1:2222"]
+    Ngrok -->|Hayır| Local["127.0.0.1:<SFTP_PORT>"]
     Ngrok -->|Evet| Public["ngrok host:port"]
 ```
 
@@ -75,6 +90,8 @@ flowchart TD
 | `dotnet build` | C# kodu ve bağımlılıklar derleniyor | OpenSSH, ACL, port ve SFTP gerçekten çalışıyor |
 | `npm run lint` | Frontend statik kalite kurallarını geçiyor | Kullanıcı akışları gerçekten çalışıyor |
 | `npm run build` | Üretim frontend paketi oluşuyor | Backend ve ağ erişimi çalışıyor |
+| `docker compose ... config --quiet` | Compose sözdizimi ve environment çözümlemesi geçiyor | Container süreçleri sağlıklı |
+| `scripts/docker.ps1 start` + health | İmajlar ve container başlangıcı çalışıyor | Harici FTP/SFTP istemcisinin her ağdan erişimi |
 | `dotnet run` normal kullanıcı | Temel API/FTP başlangıcı | Yönetici gerektiren SFTP provisioning |
 | `dotnet run` yönetici + SFTP self-test | Windows hesap, ACL, sshd ve SFTP dizin listeleme | İnternetteki ngrok adresinin her istemciden erişimi |
 
@@ -102,13 +119,27 @@ flowchart TD
     TCP -->|Evet| Auth{"Authentication successful?"}
     Auth -->|Hayır| Credential["Güncel kullanıcı/parola; hesap kilidi"]
     Auth -->|Evet| Subsystem{"SFTP subsystem açılıyor mu?"}
-    Subsystem -->|Hayır| ACL["Chroot, NTFS ACL, sshd_config ve OpenSSH logları"]
+    Subsystem -->|Hayır| ACL["Chroot, Linux sahipliği veya NTFS ACL, sshd_config ve OpenSSH logları"]
     Subsystem -->|Evet| Write{"Liste var, yükleme yok mu?"}
     Write -->|Evet| Data["Hedef /data mı? Kök / yazılamaz"]
     Write -->|Hayır| Success["Bağlantı sağlıklı"]
 ```
 
 ## 8. Sık hatalar
+
+### Kod değişti fakat Docker arayüzünde görünmüyor
+
+Sayfayı yenilemek kaynak kodu container'a kopyalamaz. `Baslat.bat` veya `.\scripts\docker.ps1 start` ile imajları yeniden derleyin. Bu kurulum hot reload/bind mount geliştirme modu değildir.
+
+### Backend container `unhealthy` veya durmuş
+
+```powershell
+.\scripts\docker.ps1 status
+docker compose --env-file .docker\runtime.env --file compose.yaml ps --all
+docker compose --env-file .docker\runtime.env --file compose.yaml logs --tail 200 backend
+```
+
+Önce gerçek backend hatasını okuyun; yalnız frontend sayfasını yenilemek backend sürecini başlatmaz.
 
 ### `Host çözümlenemedi: abc`
 
@@ -145,7 +176,7 @@ FileZilla hedefi `/readme.txt` ise güvenli köke yazmaya çalışıyorsunuz. He
 ```mermaid
 flowchart LR
     Login["USER/PASS başarılı"] --> Data["PASV/EPSV veri kanalı"]
-    Data --> Firewall["50000-51000 açık mı?"]
+    Data --> Firewall["Yerel veya runtime.env PASV aralığı açık mı?"]
     Firewall --> Address["PASV adresi doğru mu?"]
     Address --> Listing["LIST/MLSD"]
 ```
@@ -154,12 +185,21 @@ Komut portunun açık olması tek başına yeterli değildir. Pasif veri portlar
 
 ### ngrok adresine erişilemiyor
 
-- `ngrok config add-authtoken ...` tamamlanmış mı?
-- `127.0.0.1:2222` dinleniyor mu?
+- Hostta `ngrok config add-authtoken ...` tamamlanmış mı ve `Baslat.bat` çıktısında token'ın yerel config'den yüklendiği görülüyor mu?
+- Arayüzde veya `.docker/runtime.env` içinde gösterilen SFTP portu dinleniyor mu?
 - `http://127.0.0.1:4040/api/tunnels` tüneli gösteriyor mu?
 - Ücretsiz ngrok tüneli yeniden açılınca host/port değişmiş olabilir.
 
 ## 9. Tanılama komutları
+
+### Docker
+
+```powershell
+.\scripts\docker.ps1 status
+docker compose --env-file .docker\runtime.env --file compose.yaml ps --all
+docker compose --env-file .docker\runtime.env --file compose.yaml logs --tail 200
+Get-Content .\.docker\runtime.env
+```
 
 ### Portlar
 
@@ -169,7 +209,7 @@ Get-NetTCPConnection -State Listen |
   Select-Object LocalAddress,LocalPort,OwningProcess
 ```
 
-### OpenSSH servisi
+### Yerel Windows OpenSSH servisi
 
 ```powershell
 Get-Service sshd
@@ -217,10 +257,12 @@ flowchart TD
 
 | İçerik | Konum |
 | --- | --- |
-| Sunucu/kullanıcı/rol veritabanı | `Backend/FtpManager.Api/logs/database/ftp_manager.db` |
-| Günlük loglar | `Backend/FtpManager.Api/logs/` |
-| Asıl dosya deposu | `C:/ProgramData/FtpManager/ftp_root/` |
-| OpenSSH ayarı | `C:/ProgramData/ssh/sshd_config` ve `.ftp-manager.bak` |
+| Docker sunucu/kullanıcı/rol veritabanı ve logları | `ftp_manager_logs` volume'ü (`/app/logs`) |
+| Docker FTP/SFTP dosyaları | `ftp_manager_uploads` volume'ü (`/app/uploads`) |
+| Docker OpenSSH anahtarları ve yapılandırması | `ftp_manager_ssh` volume'ü (`/etc/ssh`) |
+| Yerel sunucu/kullanıcı/rol veritabanı | `Backend/FtpManager.Api/logs/database/ftp_manager.db` |
+| Yerel günlük loglar | `Backend/FtpManager.Api/logs/` |
+| Yerel asıl dosya deposu | `C:/ProgramData/FtpManager/ftp_root/` |
+| Yerel OpenSSH ayarı | `C:/ProgramData/ssh/sshd_config` ve `.ftp-manager.bak` |
 
-Yalnız veritabanını yedeklemek dosyaları; yalnız `data` klasörünü yedeklemek kullanıcı/sunucu ayarlarını korumaz.
-
+Container'ı kaldırmak named volume'leri silmez; buna rağmen volume kalıcılığı yedek yerine geçmez. Yalnız veritabanını yedeklemek dosyaları, yalnız `data` klasörünü yedeklemek kullanıcı/sunucu ayarlarını korumaz.

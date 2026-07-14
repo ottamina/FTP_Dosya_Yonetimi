@@ -54,13 +54,13 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    Client["FTP istemcisi"] -->|"Kontrol: USER, PASS, LIST"| Control["2121 / 2122"]
-    Client -->|"Veri: liste veya dosya baytları"| Passive["50000-51000"]
+    Client["FTP istemcisi"] -->|"Kontrol: USER, PASS, LIST"| Control["Yerel varsayılan veya Docker FTP port aralığı"]
+    Client -->|"Veri: liste veya dosya baytları"| Passive["Yerel veya Docker PASV port aralığı"]
     Control --> Server["FtpServerInstance"]
     Passive --> Server
 ```
 
-Komut bağlantısı açık olsa bile pasif veri portları firewall tarafından engellenirse giriş başarılı olur fakat listeleme/yükleme başarısız olur.
+Yerel geliştirme varsayılanında kontrol portları `2121` ve devamı, pasif aralık `50000–51000` olur. Docker bu iki aralığı ilk başlangıçta boş host portlarından seçip `.docker/runtime.env` dosyasına kaydeder. Komut bağlantısı açık olsa bile pasif veri portları engellenirse giriş başarılı olur fakat listeleme/yükleme başarısız olur.
 
 ## 4. Küçük dosya yükleme
 
@@ -158,7 +158,7 @@ sequenceDiagram
     participant API as FtpController
     participant LFS as LocalFtpServer
     participant P as OpenSshSftpProvisioner
-    participant W as Windows NetAPI
+    participant OS as Linux/Windows hesap ve izin katmanı
     participant SSH as sshd
     participant TEST as SSH.NET
 
@@ -166,11 +166,14 @@ sequenceDiagram
     UI->>API: POST /servers/{id}/sftp
     API->>LFS: ProvisionSftp
     LFS->>P: Provision(chroot, data)
-    P->>W: Hesap oluştur/güncelle ve parola doğrula
-    P->>P: NTFS ACL'lerini kur
+    alt Docker/Linux
+        P->>OS: useradd/chpasswd ve chown/chmod
+    else Yerel Windows
+        P->>OS: NetAPI hesabı ve NTFS ACL'leri
+    end
     P->>SSH: Match User bloğunu yaz
     P->>SSH: sshd -t
-    P->>SSH: Restart-Service sshd
+    P->>SSH: Container sshd veya Windows sshd servisini yeniden başlat
     P->>TEST: 127.0.0.1 üzerinden bağlan ve listele
     TEST-->>P: SFTP alt sistemi çalışıyor
     P-->>UI: Kullanıcı, parola, port ve Hazır durumu
@@ -180,9 +183,13 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-    P["C:/ProgramData/FtpManager"] -->|"SYSTEM + Administrators: Full\nUsers: Read/Traverse"| R["ftp_root"]
-    R -->|"SFTP kullanıcısı: Read/Traverse\nWrite yok"| J["{serverId} chroot"]
-    J -->|"SFTP kullanıcısı: Modify"| D["data"]
+    MODE{"Çalışma modu"}
+    MODE -->|"Docker"| P["/app/uploads/ftp_root"]
+    MODE -->|"Windows"| W["C:/ProgramData/FtpManager/ftp_root"]
+    P --> J["{serverId} chroot\nroot sahipliğinde, yazılamaz"]
+    W --> J2["{serverId} chroot\nNTFS ile yazılamaz"]
+    J --> D["data\nSFTP kullanıcısı yazabilir"]
+    J2 --> D2["data\nSFTP kullanıcısı yazabilir"]
 ```
 
 Bu nedenle FileZilla ile `/readme.txt` yüklemek reddedilir; doğru yazılabilir hedef `/data/readme.txt` olur.
@@ -194,7 +201,7 @@ sequenceDiagram
     actor A as Yönetici
     participant UI as React
     participant API as NgrokTunnelService
-    participant SSH as 127.0.0.1:2222
+    participant SSH as Yapılandırılmış yerel SFTP portu
     participant NG as ngrok cloud
     participant FZ as Uzak FileZilla
 
@@ -202,7 +209,7 @@ sequenceDiagram
     UI->>API: POST tunnel/start
     API->>SSH: Port dinleniyor mu?
     SSH-->>API: Evet
-    API->>NG: ngrok tcp 127.0.0.1:2222
+    API->>NG: ngrok tcp 127.0.0.1:{SFTP_PORT}
     API->>API: 127.0.0.1:4040/api/tunnels
     API-->>UI: publicHost + publicPort
     FZ->>NG: SFTP bağlantısı
@@ -216,7 +223,7 @@ ngrok adresi bir web adresi gibi görünse de bağlantı protokolü HTTP değil,
 ```mermaid
 flowchart LR
     UI["Web arayüzünde /"] --> FTP["FtpServerInstance._ftpRoot"]
-    FTP --> DATA[".../{serverId}/data"]
+    FTP --> DATA["Docker volume veya ProgramData/{serverId}/data"]
     FZ["FileZilla'da /data"] --> SSH["OpenSSH chroot"]
     SSH --> DATA
 ```
@@ -247,4 +254,3 @@ sequenceDiagram
     UI->>L: logs/database veya logs/file
     L-->>UI: En yeniden eskiye kayıtlar
 ```
-

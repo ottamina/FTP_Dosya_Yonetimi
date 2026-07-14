@@ -108,6 +108,48 @@ function New-RuntimeEnvironment {
     ) | Set-Content -LiteralPath $EnvFile -Encoding ascii
 }
 
+function Import-NgrokAuthtoken {
+    if (-not [string]::IsNullOrWhiteSpace($env:NGROK_AUTHTOKEN)) {
+        return $true
+    }
+
+    $configFiles = [System.Collections.Generic.List[string]]::new()
+    $configFiles.Add((Join-Path $env:LOCALAPPDATA 'ngrok\ngrok.yml'))
+    $configFiles.Add((Join-Path $env:USERPROFILE '.config\ngrok\ngrok.yml'))
+    $configFiles.Add((Join-Path $env:USERPROFILE '.ngrok2\ngrok.yml'))
+
+    $packageRoot = Join-Path $env:LOCALAPPDATA 'Packages'
+    if (Test-Path -LiteralPath $packageRoot) {
+        Get-ChildItem -LiteralPath $packageRoot -Directory -Filter 'ngrok.ngrok_*' -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                $configFiles.Add((Join-Path $_.FullName 'LocalCache\Local\ngrok\ngrok.yml'))
+            }
+    }
+
+    foreach ($configFile in $configFiles | Select-Object -Unique) {
+        if (-not (Test-Path -LiteralPath $configFile)) { continue }
+
+        $tokenLine = Get-Content -LiteralPath $configFile -ErrorAction Stop |
+            Where-Object { $_ -match '^\s*authtoken\s*:\s*(.+?)\s*$' } |
+            Select-Object -First 1
+        if ($null -eq $tokenLine) { continue }
+
+        $token = ([regex]::Match($tokenLine, '^\s*authtoken\s*:\s*(.+?)\s*$').Groups[1].Value).Trim()
+        if (($token.StartsWith('"') -and $token.EndsWith('"')) -or
+            ($token.StartsWith("'") -and $token.EndsWith("'"))) {
+            $token = $token.Substring(1, $token.Length - 2)
+        }
+        if ([string]::IsNullOrWhiteSpace($token)) { continue }
+
+        $env:NGROK_AUTHTOKEN = $token
+        Write-Host "Ngrok authtoken mevcut yerel ngrok ayarindan guvenli sekilde yuklendi." -ForegroundColor Green
+        return $true
+    }
+
+    Write-Warning 'Ngrok authtoken bulunamadi. Uygulama calisir ancak internet tuneli acilamaz. Once "ngrok config add-authtoken <TOKEN>" calistirin.'
+    return $false
+}
+
 function Invoke-Compose {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
     & docker compose --env-file $EnvFile --file $ComposeFile @Arguments
@@ -121,6 +163,7 @@ if ($Action -eq 'start') {
     if (-not (Test-Path -LiteralPath $EnvFile)) {
         New-RuntimeEnvironment
     }
+    [void](Import-NgrokAuthtoken)
     # Compose v5 can fail while opening a shared Bake session for concurrent
     # builds. Build each local image separately, then start without rebuilding.
     Invoke-Compose build backend

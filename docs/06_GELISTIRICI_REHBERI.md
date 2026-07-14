@@ -6,7 +6,7 @@
 flowchart LR
     UI["React olayı"] --> HTTP["Controller endpoint"]
     HTTP --> Rule["Service iş kuralı"]
-    Rule --> Protocol["FTP/SFTP/Windows/ngrok"]
+    Rule --> Protocol["FTP/SFTP/Linux/Windows/ngrok"]
     Protocol --> State["LiteDB / dosya sistemi"]
     State --> Response["DTO + UI refresh"]
 ```
@@ -64,12 +64,13 @@ sequenceDiagram
 
 ## 5. SFTP koduna dokunurken
 
-SFTP provisioning işletim sistemi durumunu değiştirir. Bu nedenle işlem sırası ve rollback önemlidir.
+SFTP provisioning işletim sistemi durumunu değiştirir. Docker'da Linux hesabı, sahiplik ve container sshd süreci; yerel modda Windows hesabı, NTFS ACL ve Windows sshd servisi etkilenir. Bu nedenle işlem sırası ve rollback önemlidir.
 
 ```mermaid
 flowchart TD
-    Pre["Ön koşulları doğrula"] --> Account["Hesap"]
-    Account --> ACL["ACL"]
+    Pre["Ön koşulları doğrula"] --> OS{"Docker/Linux veya Windows"}
+    OS --> Account["Hesap"]
+    Account --> ACL["chown/chmod veya NTFS ACL"]
     ACL --> Backup["Config yedeği"]
     Backup --> Edit["Config düzenle"]
     Edit --> Syntax["sshd -t"]
@@ -82,7 +83,7 @@ flowchart TD
 Yalnız `dotnet build` ile SFTP değişikliği tamamlanmış sayılmaz. En az şu üç seviye ayrı raporlanmalıdır:
 
 1. Derleme geçti.
-2. Yönetici ortamında provisioning geçti.
+2. Hedef çalışma modunda provisioning geçti: Docker/Linux veya yönetici Windows.
 3. SSH.NET/FileZilla ile dizin listeleme ve `/data` yükleme geçti.
 
 ## 6. ngrok koduna dokunurken
@@ -119,6 +120,7 @@ Bu ayrım davranışı değiştirmeden test edilebilirliği ve okunabilirliği a
 | Dosya yolu | Kök ve alt klasör | Var olmayan klasör | `../` ile kökten çıkamama |
 | Yükleme | Küçük ve büyük dosya | Ağ kesintisi, iptal | Dosya adı/path enjeksiyonu |
 | SFTP | `/data` liste/yükle | Kilitli hesap, bozuk config | Chroot köküne yazamama |
+| Docker yaşam döngüsü | İlk start ve tekrar start | Backend unhealthy, port çakışması | Volume ve secret'ların imaja/Git'e sızmaması |
 | ngrok | Tünel aç/kapat | ngrok yok, token yok | Harici süreci öldürmeme |
 | Log | Üç formata yazma | DB kilidi/disk hatası | Parola loglamama |
 
@@ -133,9 +135,17 @@ dotnet build .\Backend\FtpManager.Api\FtpManager.Api.csproj `
 cd .\Frontend
 npm run lint
 npm run build
+
+# Repo köküne dönüp Docker yapılandırmasını doğrulama
+cd ..
+docker compose --env-file .docker\runtime.env --file compose.yaml config --quiet
+
+# Güncel kodla imajları derleme ve health kontrolü
+.\scripts\docker.ps1 start
+.\scripts\docker.ps1 status
 ```
 
-Çalışan backend varsayılan `bin` dosyalarını kilitleyebileceği için backend kontrolünde ayrı output klasörü kullanılır.
+Çalışan yerel backend varsayılan `bin` dosyalarını kilitleyebileceği için backend kontrolünde ayrı output klasörü kullanılır. Docker doğrulamasında yalnız imajın derlenmesi yeterli değildir; backend ve frontend health durumu ile kritik API çağrıları ayrıca kontrol edilir. `Baslat.bat` hot reload sağlamaz; kaynak değişikliğinden sonra yeniden çalıştırılması gerekir.
 
 ## 10. Kod inceleme kontrol listesi
 
@@ -149,6 +159,10 @@ npm run build
 - [ ] Derleme testi ile gerçek çalışma testi ayrı raporlandı mı?
 - [ ] Kullanıcının mevcut dosyaları üzerine sessizce yazılıyor mu?
 - [ ] Windows yolunda Türkçe karakter ve boşluk senaryosu düşünüldü mü?
+- [ ] Docker/Linux yolu ile yerel Windows yolu ayrı ayrı değerlendirildi mi?
+- [ ] Yeni port container içinde dinleniyor ve `compose.yaml` tarafından hosta eşleniyor mu?
+- [ ] Kalıcı veri named volume'de mi, yoksa container yenilenince kayboluyor mu?
+- [ ] Secret veya `.docker/runtime.env` Git'e ya da Docker build context'ine giriyor mu?
 
 ## 11. Önerilen geliştirme yol haritası
 
@@ -160,4 +174,3 @@ flowchart LR
     P2 --> C["App hook'lara ayrım\nAPI client merkezileştirme"]
     P3 --> D["Arayüzde doğrudan SFTP seçeneği\nKalıcı tunnel seçenekleri"]
 ```
-
