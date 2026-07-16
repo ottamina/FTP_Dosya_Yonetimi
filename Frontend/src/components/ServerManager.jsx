@@ -20,6 +20,7 @@ function ServerManager({
   handleStopSftpTunnel,
   handleDeleteServer,
   copyServerDetails,
+  copyServerField,
   copySftpDetails,
   sftpTunnel,
   canManageServers = false,
@@ -194,19 +195,57 @@ function ServerManager({
                       <div className="bg-gray-50 rounded-lg p-3.5 text-xs grid grid-cols-2 gap-y-2.5 gap-x-2 border border-gray-100 font-medium">
                         <div>
                           <span className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Host</span>
-                          <span className="text-gray-700 font-semibold">{server.host}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyServerField(server.host, 'Host')}
+                            title="Host bilgisini kopyala"
+                            aria-label="Host bilgisini kopyala"
+                            className="group mt-0.5 flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-gray-700 font-semibold hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                          >
+                            <span className="min-w-0 truncate">{server.host}</span>
+                            <i className="fa-regular fa-copy shrink-0 text-[10px] text-gray-400 group-hover:text-blue-600"></i>
+                          </button>
                         </div>
                         <div>
                           <span className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Port </span>
-                          <span className="text-blue-600 font-extrabold">{server.port}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyServerField(server.port, 'Port')}
+                            title="Port bilgisini kopyala"
+                            aria-label="Port bilgisini kopyala"
+                            className="group mt-0.5 flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-blue-600 font-extrabold hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                          >
+                            <span className="min-w-0 truncate">{server.port}</span>
+                            <i className="fa-regular fa-copy shrink-0 text-[10px] text-gray-400 group-hover:text-blue-600"></i>
+                          </button>
                         </div>
                         <div>
                           <span className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Kullanıcı Adı</span>
-                          <span className="text-gray-700 font-semibold">{canViewCredentials ? server.username : '******'}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyServerField(server.username, 'Kullanıcı adı')}
+                            disabled={!canViewCredentials}
+                            title={canViewCredentials ? 'Kullanıcı adını kopyala' : 'Bu bilgiyi görüntüleme yetkiniz yok'}
+                            aria-label="Kullanıcı adını kopyala"
+                            className="group mt-0.5 flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-gray-700 font-semibold hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:text-gray-400"
+                          >
+                            <span className="min-w-0 truncate">{canViewCredentials ? server.username : '******'}</span>
+                            <i className="fa-regular fa-copy shrink-0 text-[10px] text-gray-400 group-hover:text-blue-600"></i>
+                          </button>
                         </div>
                         <div>
                           <span className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Şifre</span>
-                          <span className="text-gray-700 font-semibold">{canViewCredentials ? server.password : '******'}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyServerField(server.password, 'Şifre')}
+                            disabled={!canViewCredentials}
+                            title={canViewCredentials ? 'Şifreyi kopyala' : 'Bu bilgiyi görüntüleme yetkiniz yok'}
+                            aria-label="Şifreyi kopyala"
+                            className="group mt-0.5 flex w-full items-center justify-between gap-2 rounded px-1 py-0.5 text-left text-gray-700 font-semibold hover:bg-white hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:text-gray-400"
+                          >
+                            <span className="min-w-0 truncate">{canViewCredentials ? server.password : '******'}</span>
+                            <i className="fa-regular fa-copy shrink-0 text-[10px] text-gray-400 group-hover:text-blue-600"></i>
+                          </button>
                         </div>
                       </div>
 

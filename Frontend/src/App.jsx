@@ -933,6 +933,15 @@ function App() {
     showToast('Bağlantı bilgileri kopyalandı.');
   };
 
+  const copyServerField = async (value, label) => {
+    try {
+      await navigator.clipboard.writeText(String(value));
+      showToast(`${label} kopyalandı.`);
+    } catch {
+      showToast(`${label} kopyalanamadı.`, 'error');
+    }
+  };
+
   const requestRenameItem = (item) => {
     requestTextInput({
       title: 'Yeniden Adlandır',
@@ -1178,6 +1187,7 @@ function App() {
             handleStopSftpTunnel={handleStopSftpTunnel}
             handleDeleteServer={handleDeleteServer}
             copyServerDetails={copyServerDetails}
+            copyServerField={copyServerField}
             copySftpDetails={copySftpDetails}
             sftpTunnel={sftpTunnel}
             canManageServers={hasPermission('servers.manage')}
