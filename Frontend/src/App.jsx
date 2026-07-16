@@ -13,6 +13,14 @@ import AccessManager from './components/AccessManager';
 const API_ROOT = (import.meta.env.VITE_API_ROOT || '/api').replace(/\/$/, '');
 const API_BASE_URL = `${API_ROOT}/ftp`;
 const ACCESS_API_BASE_URL = `${API_ROOT}/access`;
+const MB = 1024 * 1024;
+const CHUNK_UPLOAD_THRESHOLD = 30 * MB;
+
+const getChunkSize = (fileSize) => {
+  if (fileSize < 100 * MB) return 5 * MB;
+  if (fileSize < 200 * MB) return 10 * MB;
+  return 20 * MB;
+};
 
 function App() {
   // Navigation State
@@ -335,9 +343,10 @@ function App() {
 
   const getUploadTargetPath = useCallback(() => {
     const selectedItem = getSelectedItem();
-    if (!selectedItem || selectedItem.isFolder) return selectedPath || '/';
-    const parentPath = selectedItem.fullName.substring(0, selectedItem.fullName.lastIndexOf('/')) || '/';
-    return parentPath;
+    // Only an explicitly selected folder can be an upload destination.
+    // A selected file (or a stale/unknown selection) must never be treated as
+    // a directory; in that case upload directly to the FTP root.
+    return selectedItem?.isFolder ? selectedPath || '/' : '/';
   }, [getSelectedItem, selectedPath]);
 
   // Server management functions
@@ -681,24 +690,23 @@ function App() {
 
     setLoading(true);
 
-    const CHUNK_UPLOAD_THRESHOLD = 1 * 1024 * 1024; // 1 MB for testing
-    const CHUNK_SIZE = 512 * 1024; // 512 KB chunks for testing
     const uploadTargetPath = getUploadTargetPath();
 
     if (selectedFile.size > CHUNK_UPLOAD_THRESHOLD) {
       // Chunked Upload
+      const chunkSize = getChunkSize(selectedFile.size);
+      const totalChunks = Math.ceil(selectedFile.size / chunkSize);
       addLog(`"${selectedFile.name}" dosyası parçalı yükleme (chunked) ile gönderiliyor (${(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)...`, 'INFO', false);
       
       const uploadId = 'chunk_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-      const totalChunks = Math.ceil(selectedFile.size / CHUNK_SIZE);
       
       setUploadProgress(0);
       setUploadStatus(`Parça 1/${totalChunks} yükleniyor...`);
 
       try {
         for (let i = 0; i < totalChunks; i++) {
-          const start = i * CHUNK_SIZE;
-          const end = Math.min(start + CHUNK_SIZE, selectedFile.size);
+          const start = i * chunkSize;
+          const end = Math.min(start + chunkSize, selectedFile.size);
           const chunk = selectedFile.slice(start, end);
           
           const formData = new FormData();
