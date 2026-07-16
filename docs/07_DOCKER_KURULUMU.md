@@ -2,6 +2,110 @@
 
 Docker çalışma modu, projeyi hosta .NET SDK, Node.js veya OpenSSH kurmadan çalıştırmanın önerilen yoludur. React production paketi Nginx container'ında; ASP.NET Core API, yerel FTP instance'ları, Linux OpenSSH/SFTP ve ngrok agent'ı backend container'ında çalışır.
 
+## Docker bu projede tam olarak nasıl çalışır?
+
+Docker burada kaynak kodu doğrudan çalıştıran tek bir program değildir. Projenin ihtiyaç duyduğu ortamları **image** olarak paketler, bu image'ları **container** olarak çalıştırır ve iki servisi **Docker Compose** ile aynı ağ ve veri modeli altında yönetir.
+
+| Kavram | Bu projedeki karşılığı |
+| --- | --- |
+| Image | Backend veya frontend'in çalışması için gereken kodu, runtime'ı ve araçları içeren salt-okunur paket |
+| Container | Bir image'ın çalışan instance'ı; bu projede `backend-1` ve `frontend-1` |
+| Compose projesi | Container'ları, `app` ağını ve named volume'leri tek grup olarak yöneten üst yapı |
+| Bridge network | Frontend'in backend'e `backend:8080` adıyla ulaşmasını sağlayan, hosttan ayrı iç ağ |
+| Port mapping | Hosttaki `127.0.0.1:<port>` trafiğini container içindeki porta ileten kural |
+| Named volume | Container silinse bile veritabanını, dosyaları ve SSH anahtarlarını koruyan Docker depolaması |
+
+### `Baslat.bat` çalıştırılınca gerçekleşen sıra
+
+```mermaid
+flowchart TD
+    BAT["Baslat.bat"] --> PS["scripts/docker.ps1 start"]
+    PS --> DAEMON{"Docker engine hazır mı?"}
+    DAEMON -->|"Hayır"| WSL["WSL2'yi kontrol et ve Docker Desktop'ı başlat"]
+    DAEMON -->|"Evet"| ENV{".docker/runtime.env var mı?"}
+    WSL --> ENV
+    ENV -->|"Hayır"| PORTS["Boş ve çakışmasız portlar ile proje adı üret"]
+    ENV -->|"Evet"| TOKEN["Kayıtlı portları yeniden kullan"]
+    PORTS --> TOKEN
+    TOKEN --> NGROK["Varsa yerel ngrok token'ını sürece aktar"]
+    NGROK --> BUILD1["Backend image'ını build et"]
+    BUILD1 --> BUILD2["Frontend image'ını build et"]
+    BUILD2 --> UP["docker compose up -d --no-build --remove-orphans"]
+    UP --> BACKEND["Backend container'ını başlat"]
+    BACKEND --> HEALTH{"/health başarılı mı?"}
+    HEALTH -->|"Evet"| FRONTEND["Frontend container'ını başlat"]
+    FRONTEND --> BROWSER["Tarayıcıda UI_PORT adresini aç"]
+```
+
+Adım adım karşılığı şöyledir:
+
+1. `Baslat.bat`, proje klasörünü aktif dizin yapar ve `scripts/docker.ps1 start` komutunu çalıştırır.
+2. Script `docker info` ile Docker engine'i kontrol eder. Engine kapalıysa WSL2'nin varlığını doğrular, Docker Desktop'ı başlatır ve en fazla iki dakika hazır olmasını bekler.
+3. `.docker/runtime.env` yoksa aktif TCP portları taranır. UI, API ve SFTP için birer port; FTP kontrol bağlantıları için 10; pasif veri kanalları için 50 ardışık port seçilir. Klasör yolunun SHA-256 özetinden benzersiz bir Compose proje adı üretilir.
+4. Runtime dosyası zaten varsa yeni port veya proje adı üretilmez; aynı stack ve aynı adresler kullanılır.
+5. Ngrok token'ı environment veya bilinen yerel ngrok ayar dosyalarında aranır. Bulunan değer sadece başlatma sürecine aktarılır; runtime dosyasına yazılmaz.
+6. `docker compose build backend` backend image'ını oluşturur. SDK katmanında proje restore ve publish edilir; daha küçük ASP.NET runtime katmanına yalnızca yayımlanmış uygulama, OpenSSH, `curl` ve ngrok alınır. SDK son image'da bulunmaz.
+7. `docker compose build frontend` frontend image'ını oluşturur. Node katmanında `npm ci` ve Vite production build çalışır; son Nginx katmanına sadece `dist` çıktısı ve Nginx ayarı kopyalanır. Node.js son container'da bulunmaz.
+8. Docker değişmeyen Dockerfile adımlarını ve dosyaları layer cache'den kullanır. Bu nedenle script iki image'ı da build etse bile değişmeyen build genellikle kısa sürer.
+9. `docker compose up --detach --no-build --remove-orphans`; `app` bridge ağını, named volume'leri ve gereken container'ları oluşturur veya günceller. `--detach` servisleri arka planda bırakır; `--remove-orphans` artık Compose dosyasında olmayan eski servisleri temizler.
+10. Backend `http://+:8080` üzerinde dinler. Compose, `/health` endpoint'i başarılı olana kadar backend'i sağlıklı saymaz. Frontend'deki `depends_on: condition: service_healthy` nedeniyle Nginx backend hazır olmadan başlatılmaz.
+11. Servisler hazır olunca script UI, API, SFTP ve FTP portlarını terminale yazar ve tarayıcıda web arayüzünü açar.
+
+### Bir web isteği hangi yolu izler?
+
+```mermaid
+sequenceDiagram
+    participant B as Tarayıcı
+    participant H as Host 127.0.0.1:UI_PORT
+    participant N as frontend / Nginx:8080
+    participant A as backend / ASP.NET:8080
+    B->>H: GET / veya /assets/...
+    H->>N: Docker port mapping
+    N-->>B: React statik dosyaları
+    B->>H: /api/... isteği
+    H->>N: Aynı origin
+    N->>A: proxy_pass http://backend:8080
+    A-->>N: JSON yanıtı
+    N-->>B: JSON yanıtı
+```
+
+Tarayıcı backend container'ına doğrudan gitmez. Önce hosttaki `UI_PORT` üzerinden Nginx'e ulaşır. Nginx statik React dosyalarını kendisi döndürür; `/api/` ile başlayan istekleri ise Docker'ın iç DNS'i sayesinde `backend:8080` adresine yollar. `API_PORT`, normal UI kullanımından çok doğrudan tanılama içindir.
+
+### FTP, SFTP ve ngrok trafiği hangi yolu izler?
+
+- **FTP kontrol kanalı:** FTP istemcisi `127.0.0.1:<atanan FTP portu>` adresine bağlanır. Docker bu portu backend container'ındaki aynı porta iletir; ASP.NET içindeki FTP server instance'ı komutları karşılar.
+- **FTP pasif veri kanalı:** Dosya listesi veya transfer sırasında backend ayrı bir PASV/EPSV portu açar. Compose'taki 50 portluk mapping, istemcinin bu ikinci bağlantıyı da container'a kurabilmesini sağlar.
+- **SFTP:** SFTP istemcisi hosttaki `SFTP_PORT` üzerinden backend container'ındaki Linux OpenSSH servisine ulaşır. Kullanıcı chroot ile sadece kendisine ayrılan klasörü görür.
+- **Ngrok:** Arayüzde **Internet tünelini aç** düğmesine basılınca backend container'ı içindeki ngrok agent'ı yerel SFTP portuna TCP tüneli açar. `Baslat.bat` token'ı hazırlar fakat tüneli kendiliğinden açmaz.
+
+Docker Desktop'ta backend satırında **62 port** görülmesi 62 ayrı uygulamanın çalıştığı anlamına gelmez. Sayı; 1 API + 1 SFTP + 10 FTP kontrol + 50 FTP pasif veri portu mapping'inin toplamıdır. Frontend ayrıca tek bir UI portu yayınlar.
+
+### Veri neden container yenilenince kaybolmaz?
+
+Container'ı geçici bir çalışma katmanı olarak düşünün. Image değişince Compose eski container'ı kaldırıp yenisini oluşturabilir. Kalıcı veriler container katmanında değil, aşağıdaki named volume'lerde tutulur:
+
+```text
+ftp_manager_logs   -> /app/logs   -> LiteDB, oturum/yetki verileri ve loglar
+ftp_manager_uploads -> /app/uploads -> FTP ve SFTP dosyaları
+ftp_manager_ssh    -> /etc/ssh    -> OpenSSH host anahtarları ve ayarları
+```
+
+`Durdur.bat`, `docker compose down` veya image/container yenilemesi bu volume'leri silmez. Ancak `docker compose down --volumes`, Docker Desktop'tan volume silme veya `docker volume rm` kalıcı verileri yok eder. Named volume bir yedekleme sistemi değildir.
+
+### Hangi değişiklik neyi yeniler?
+
+| Değişiklik | Sonraki `Baslat.bat` davranışı |
+| --- | --- |
+| `Frontend/src` | Frontend image yeniden build edilir; frontend container gerekiyorsa yenilenir |
+| Backend `.cs` dosyaları | Backend publish/build katmanları yenilenir; backend container yenilenir |
+| `package.json` / lock dosyası | `npm ci` katmanı yeniden çalışır |
+| `.csproj` | `dotnet restore` ve publish katmanları yeniden çalışır |
+| Dockerfile veya `compose.yaml` | Etkilenen image ya da container yapılandırması yenilenir |
+| Sadece tarayıcı yenileme | Image veya container değişmez; yeni kaynak kod yansımaz |
+| Sadece container restart | Aynı image yeniden çalışır; VS Code'daki yeni kod image'a girmez |
+
+Bu production düzeninde kaynak klasörleri container'a bağlanmadığı için hot reload yoktur. Kod değişikliğinin Docker'a girmesi için build gerekir; bu projede build ve güvenli Compose güncellemesi `Baslat.bat` tarafından birlikte yapılır.
+
 ## 1. Tek tıkla başlatma
 
 1. Docker Desktop ve WSL2'yi kurun. WSL yoksa yönetici PowerShell'de `wsl --install` çalıştırıp bilgisayarı yeniden başlatın.
