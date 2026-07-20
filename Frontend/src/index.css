@@ -1,1 +1,248 @@
 @import "tailwindcss";
+
+/* Control-plane palette: dark neutral workspace, one product accent and semantic state colors. */
+:root {
+  --app-canvas: #101722;
+  --app-surface: #182230;
+  --app-surface-muted: #202c3b;
+  --app-line: #2d3a4c;
+  --app-ink: #edf3fa;
+  --app-muted: #98a8ba;
+  --app-accent: #5b9cff;
+  --app-accent-strong: #3f7fe8;
+  --app-success: #46b987;
+  --app-warning: #e8b451;
+  --app-danger: #df6c72;
+}
+
+html { background: var(--app-canvas); }
+body { min-width: 320px; color: var(--app-ink); }
+
+.app-shell { position: relative; isolation: isolate; background: var(--app-canvas) !important; }
+.app-shell::before,
+.app-shell::after {
+  content: "";
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+}
+.app-shell::before {
+  width: min(54vw, 760px);
+  height: min(54vw, 760px);
+  top: 105px;
+  right: -230px;
+  border: 1px solid rgba(91, 156, 255, .24);
+  border-radius: 48% 52% 59% 41% / 45% 42% 58% 55%;
+  box-shadow: 0 0 0 54px rgba(91, 156, 255, .055), 0 0 0 108px rgba(91, 156, 255, .025);
+  transform: rotate(-17deg);
+}
+.app-shell::after {
+  width: 56vw;
+  height: 360px;
+  left: -18vw;
+  bottom: -180px;
+  opacity: .75;
+  background-image: linear-gradient(135deg, transparent 0 49%, rgba(154, 177, 204, .13) 49.15% 49.45%, transparent 49.6% 100%);
+  background-size: 42px 42px;
+  transform: rotate(9deg);
+}
+
+/* Neutral surfaces and typography. */
+.bg-gray-50, .bg-slate-50 { background-color: var(--app-canvas) !important; }
+.bg-white { background-color: rgba(24, 34, 48, .94) !important; }
+.bg-gray-100, .bg-slate-100 { background-color: var(--app-surface-muted) !important; }
+.bg-gray-200, .bg-slate-200 { background-color: #263244 !important; }
+.border-gray-100, .border-slate-100 { border-color: #253145 !important; }
+.border-gray-200, .border-slate-200 { border-color: var(--app-line) !important; }
+.border-gray-300 { border-color: #46556a !important; }
+.text-gray-900, .text-gray-800 { color: var(--app-ink) !important; }
+.text-gray-700 { color: #d2dce8 !important; }
+.text-gray-600 { color: #b7c4d3 !important; }
+.text-gray-500 { color: var(--app-muted) !important; }
+.text-gray-400, .text-gray-450 { color: #718298 !important; }
+
+/* One restrained indigo scale for primary actions and information. */
+.bg-blue-600 { background-color: var(--app-accent) !important; }
+.bg-blue-700, .hover\:bg-blue-700:hover { background-color: var(--app-accent-strong) !important; }
+.bg-blue-50 { background-color: rgba(91, 156, 255, .10) !important; }
+.bg-blue-100 { background-color: rgba(91, 156, 255, .15) !important; }
+.border-blue-100 { border-color: rgba(91, 156, 255, .20) !important; }
+.border-blue-200, .border-blue-300 { border-color: rgba(91, 156, 255, .38) !important; }
+.border-blue-500 { border-color: var(--app-accent) !important; }
+.text-blue-900, .text-blue-800, .text-blue-700 { color: #b9d3ff !important; }
+.text-blue-600, .text-blue-500 { color: var(--app-accent) !important; }
+.hover\:text-blue-700:hover { color: var(--app-accent-strong) !important; }
+.focus\:border-blue-500:focus { border-color: var(--app-accent) !important; }
+.focus\:ring-blue-300:focus, .focus\:ring-blue-500:focus { --tw-ring-color: rgba(91, 156, 255, .40) !important; }
+
+/* State colors stay related, quiet and legible. */
+.bg-green-50, .bg-green-100 { background-color: rgba(70, 185, 135, .12) !important; }
+.border-green-200, .border-green-400 { border-color: rgba(70, 185, 135, .34) !important; }
+.text-green-800, .text-green-700, .text-green-600, .text-green-500 { color: var(--app-success) !important; }
+.bg-yellow-50, .bg-yellow-100, .bg-amber-50 { background-color: rgba(232, 180, 81, .13) !important; }
+.border-yellow-200, .border-amber-200 { border-color: rgba(232, 180, 81, .38) !important; }
+.text-yellow-700, .text-yellow-600, .text-yellow-500, .text-amber-900, .text-amber-800 { color: var(--app-warning) !important; }
+.bg-red-50, .bg-red-100 { background-color: rgba(223, 108, 114, .12) !important; }
+.border-red-100, .border-red-200 { border-color: rgba(223, 108, 114, .36) !important; }
+.text-red-950, .text-red-800, .text-red-700, .text-red-600, .text-red-500 { color: var(--app-danger) !important; }
+
+/* Soften hard shadows and bright hover fills across cards/buttons. */
+.shadow-sm, .shadow-md, .shadow-lg { box-shadow: 0 14px 34px rgba(0, 0, 0, .24) !important; }
+.hover\:bg-gray-100:hover { background-color: #263244 !important; }
+.hover\:bg-blue-100:hover { background-color: rgba(91, 156, 255, .24) !important; }
+.hover\:bg-green-50:hover, .hover\:bg-green-100:hover { background-color: rgba(70, 185, 135, .19) !important; }
+.hover\:bg-yellow-50:hover, .hover\:bg-yellow-100:hover { background-color: rgba(232, 180, 81, .22) !important; }
+.hover\:bg-red-50:hover, .hover\:bg-red-100:hover { background-color: rgba(223, 108, 114, .18) !important; }
+
+/* Remaining utility shades are also forced into the same five-color family. */
+.bg-slate-900, .bg-slate-800 { background-color: #101722 !important; }
+.bg-gray-300, .bg-gray-400, .bg-gray-150 { background-color: #334257 !important; }
+.bg-blue-300 { background-color: #5b9cff !important; }
+.bg-green-400, .bg-green-500, .bg-green-600, .bg-green-700 { background-color: #46b987 !important; }
+.bg-yellow-100 { background-color: rgba(232, 180, 81, .20) !important; }
+.bg-red-400, .bg-red-500, .bg-red-600 { background-color: #df6c72 !important; }
+.bg-black\/40 { background-color: rgba(0, 0, 0, .62) !important; }
+
+/* Light control-plane mode. Kept last to override every legacy utility shade consistently. */
+:root {
+  --app-canvas: #eef3f8;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f5f8fb;
+  --app-line: #d9e2ec;
+  --app-ink: #182433;
+  --app-muted: #66788a;
+  --app-accent: #2f6fed;
+  --app-accent-strong: #245bc8;
+  --app-success: #23845e;
+  --app-warning: #a56412;
+  --app-danger: #bd4f58;
+}
+
+.app-shell::before { border-color: rgba(47, 111, 237, .22); box-shadow: 0 0 0 54px rgba(47, 111, 237, .05), 0 0 0 108px rgba(47, 111, 237, .025); }
+.app-shell::after { background-image: linear-gradient(135deg, transparent 0 49%, rgba(76, 105, 135, .11) 49.15% 49.45%, transparent 49.6% 100%); }
+.bg-gray-50, .bg-slate-50 { background-color: var(--app-canvas) !important; }
+.bg-white { background-color: rgba(255, 255, 255, .96) !important; }
+.bg-gray-100, .bg-slate-100 { background-color: var(--app-surface-muted) !important; }
+.bg-gray-200, .bg-slate-200 { background-color: #e8eef5 !important; }
+.bg-gray-300, .bg-gray-400, .bg-gray-150 { background-color: #dce5ef !important; }
+.border-gray-100, .border-slate-100 { border-color: #edf1f5 !important; }
+.border-gray-200, .border-slate-200 { border-color: var(--app-line) !important; }
+.border-gray-300 { border-color: #c7d4e0 !important; }
+.text-gray-900, .text-gray-800 { color: var(--app-ink) !important; }
+.text-gray-700 { color: #334155 !important; }
+.text-gray-600 { color: #506174 !important; }
+.text-gray-500 { color: var(--app-muted) !important; }
+.text-gray-400, .text-gray-450 { color: #8a9aab !important; }
+.bg-slate-900, .bg-slate-800 { background-color: #1e2a3a !important; }
+.bg-blue-600, .bg-blue-300 { background-color: var(--app-accent) !important; }
+.bg-blue-700, .hover\:bg-blue-700:hover { background-color: var(--app-accent-strong) !important; }
+.bg-blue-50 { background-color: #f1f6ff !important; }
+.bg-blue-100 { background-color: #e8f0ff !important; }
+.border-blue-100 { border-color: #dbe8ff !important; }
+.border-blue-200, .border-blue-300 { border-color: #c5d9ff !important; }
+.border-blue-500 { border-color: var(--app-accent) !important; }
+.text-blue-900, .text-blue-800, .text-blue-700 { color: #2855a3 !important; }
+.text-blue-600, .text-blue-500 { color: var(--app-accent) !important; }
+.focus\:ring-blue-300:focus, .focus\:ring-blue-500:focus { --tw-ring-color: rgba(47, 111, 237, .28) !important; }
+.bg-green-50, .bg-green-100 { background-color: #edf9f3 !important; }
+.border-green-200, .border-green-400 { border-color: #c9ecd9 !important; }
+.bg-green-400, .bg-green-500, .bg-green-600, .bg-green-700 { background-color: var(--app-success) !important; }
+.text-green-800, .text-green-700, .text-green-600, .text-green-500 { color: var(--app-success) !important; }
+.bg-yellow-50, .bg-yellow-100, .bg-amber-50 { background-color: #fff8e9 !important; }
+.border-yellow-200, .border-amber-200 { border-color: #f4dca5 !important; }
+.text-yellow-700, .text-yellow-600, .text-yellow-500, .text-amber-900, .text-amber-800 { color: var(--app-warning) !important; }
+.bg-red-50, .bg-red-100 { background-color: #fff1f2 !important; }
+.border-red-100, .border-red-200 { border-color: #f4cbd0 !important; }
+.bg-red-400, .bg-red-500, .bg-red-600 { background-color: var(--app-danger) !important; }
+.text-red-950, .text-red-800, .text-red-700, .text-red-600, .text-red-500 { color: var(--app-danger) !important; }
+.shadow-sm, .shadow-md, .shadow-lg { box-shadow: 0 12px 30px rgba(34, 57, 83, .09) !important; }
+
+/* Visible, paper-like workspace grid with a few subtle technical shapes. */
+.app-shell {
+  background-color: #edf5f8 !important;
+  background-image:
+    linear-gradient(rgba(71, 122, 153, .105) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(71, 122, 153, .105) 1px, transparent 1px),
+    linear-gradient(rgba(71, 122, 153, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(71, 122, 153, .045) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px, 8px 8px, 8px 8px;
+}
+.app-shell main.bg-slate-50,
+.app-shell main.bg-gray-50 { background-color: transparent !important; }
+.app-shell::before {
+  top: 210px;
+  right: -180px;
+  width: 580px;
+  height: 580px;
+  border-color: rgba(47, 111, 237, .28);
+  box-shadow: 0 0 0 54px rgba(47, 111, 237, .045), 0 0 0 108px rgba(47, 111, 237, .025);
+}
+.app-shell::after {
+  left: -9vw;
+  bottom: -125px;
+  width: 52vw;
+  height: 310px;
+  opacity: .8;
+}
+
+/* Every interactive button gets a clear, light-theme hover response. */
+button:not(:disabled) { transition: background-color .16s ease, color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+button:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 7px 16px rgba(34, 57, 83, .12); }
+button[class*="hover:bg-gray"]:not(:disabled):hover { background-color: #e4edf5 !important; color: #27415c !important; }
+button[class*="hover:bg-blue"]:not(:disabled):hover { background-color: #245bc8 !important; color: #fff !important; }
+button[class*="hover:bg-green"]:not(:disabled):hover { background-color: #dff5e9 !important; color: #196847 !important; }
+button[class*="hover:bg-yellow"], button[class*="hover:bg-amber"] { }
+button[class*="hover:bg-yellow"]:not(:disabled):hover, button[class*="hover:bg-amber"]:not(:disabled):hover { background-color: #fff1cb !important; color: #83500b !important; }
+button[class*="hover:bg-red"]:not(:disabled):hover { background-color: #ffe3e6 !important; color: #a73d47 !important; }
+button:not(:disabled):active { transform: translateY(0); box-shadow: none; }
+
+/* File explorer: selected files must remain readable in the light workspace. */
+.file-explorer {
+  background-color: rgba(255, 255, 255, .88) !important;
+  backdrop-filter: blur(14px);
+}
+.file-explorer select,
+.file-explorer input {
+  background-color: rgba(245, 248, 251, .92) !important;
+}
+.folder-tree .explorer-tree-item {
+  color: #405266;
+  border-color: transparent;
+}
+.folder-tree .explorer-tree-item:hover {
+  background-color: #eef4f9 !important;
+  border-color: #dbe6f0;
+}
+.folder-tree .explorer-tree-item--selected,
+.folder-tree .explorer-tree-item--selected:hover {
+  background-color: #e7f0ff !important;
+  border-color: #c7dcff !important;
+  color: #1f4f99 !important;
+  box-shadow: inset 3px 0 0 #2f6fed;
+}
+.folder-tree .explorer-tree-item--selected span {
+  color: inherit !important;
+}
+.folder-tree .explorer-tree-action {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  box-shadow: none !important;
+}
+.folder-tree .explorer-tree-action--download,
+.folder-tree .explorer-tree-action--edit { color: #526b85 !important; }
+.folder-tree .explorer-tree-action--download:hover,
+.folder-tree .explorer-tree-action--edit:hover {
+  color: #245bc8 !important;
+  background-color: #fff !important;
+  border-color: #c7dcff;
+}
+.folder-tree .explorer-tree-action--delete { color: #a5666d !important; }
+.folder-tree .explorer-tree-action--delete:hover {
+  color: #a73d47 !important;
+  background-color: #fff4f5 !important;
+  border-color: #f0c6cb;
+}

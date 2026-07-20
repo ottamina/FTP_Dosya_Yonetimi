@@ -92,5 +92,34 @@ namespace FtpManager.Api.Services
 
             return (chrootDirectory, dataDirectory);
         }
+
+        public static string ResolveExistingFolder(string baseRoot, string relativeFolder)
+        {
+            if (string.IsNullOrWhiteSpace(relativeFolder))
+            {
+                throw new InvalidOperationException("FTP kök klasörü seçilmelidir.");
+            }
+
+            var root = Path.GetFullPath(baseRoot);
+            var normalizedFolder = relativeFolder.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+            // Varsayılan sunucunun kullanıcı verisi teknik olarak default/data altında
+            // tutulur. Seçicide "default" görünür; FTP kökü doğrudan veriye bağlanır.
+            if (string.Equals(normalizedFolder, "default", StringComparison.OrdinalIgnoreCase) &&
+                Directory.Exists(Path.Combine(root, "default", DataDirectoryName)))
+            {
+                normalizedFolder = Path.Combine("default", DataDirectoryName);
+            }
+            var candidate = Path.GetFullPath(Path.Combine(root, normalizedFolder));
+            var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar)
+                ? root
+                : root + Path.DirectorySeparatorChar;
+
+            if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(candidate))
+            {
+                throw new InvalidOperationException("Seçilen FTP kök klasörü geçerli değil.");
+            }
+
+            return candidate;
+        }
     }
 }

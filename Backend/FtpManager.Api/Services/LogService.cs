@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 
 namespace FtpManager.Api.Services
 {
@@ -12,11 +13,15 @@ namespace FtpManager.Api.Services
         private readonly string _dbDir;
         private readonly string _jsonDir;
         private readonly string _textDir;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly AccessService _accessService;
 
         private static readonly object _lock = new object();
 
-        public LogService()
+        public LogService(IHttpContextAccessor httpContextAccessor, AccessService accessService)
         {
+            _httpContextAccessor = httpContextAccessor;
+            _accessService = accessService;
             // Set up folders relative to application root
             _logsDir = Path.Combine(Directory.GetCurrentDirectory(), "logs");
             _dbDir = Path.Combine(_logsDir, "database");
@@ -35,6 +40,23 @@ namespace FtpManager.Api.Services
 
         private void WriteLog(string operation, string message, string level, string? username = null, string? roleName = null, Exception? exception = null)
         {
+            if (string.IsNullOrWhiteSpace(username))
+            {
+                try
+                {
+                    var context = _httpContextAccessor.HttpContext;
+                    if (context != null)
+                    {
+                        var actor = _accessService.GetCurrentUser(context);
+                        username = actor.Username;
+                        roleName = actor.RoleName;
+                    }
+                }
+                catch
+                {
+                    // Background services and failed/anonymous requests have no actor.
+                }
+            }
             var now = DateTime.Now;
             var entry = new LogEntry
             {

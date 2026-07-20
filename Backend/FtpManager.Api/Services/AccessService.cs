@@ -63,19 +63,11 @@ namespace FtpManager.Api.Services
                     });
                 }
 
-                if (users.Count() == 0)
+                var legacyAdmin = users.FindOne(x => x.Username == "admin");
+                if (legacyAdmin != null && VerifyPassword("admin123", legacyAdmin.PasswordHash, legacyAdmin.PasswordSalt))
                 {
-                    var (hash, salt) = HashPassword("admin123");
-                    users.Insert(new AppUser
-                    {
-                        Id = "admin",
-                        FullName = "Sistem Yoneticisi",
-                        Username = "admin",
-                        PasswordHash = hash,
-                        PasswordSalt = salt,
-                        RoleId = "admin",
-                        IsActive = true
-                    });
+                    legacyAdmin.MustChangePassword = true;
+                    users.Update(legacyAdmin);
                 }
             }
         }
@@ -103,6 +95,54 @@ namespace FtpManager.Api.Services
                     Token = session.Token,
                     User = ToCurrentUser(db, user)
                 };
+            }
+        }
+
+        public bool RequiresInitialSetup()
+        {
+            lock (_lock)
+            {
+                using var db = new LiteDatabase(_dbFilePath);
+                return db.GetCollection<AppUser>("users").Count() == 0;
+            }
+        }
+
+        public LoginResponse CompleteInitialSetup(InitialSetupRequest request)
+        {
+            lock (_lock)
+            {
+                using var db = new LiteDatabase(_dbFilePath);
+                var users = db.GetCollection<AppUser>("users");
+                if (users.Count() != 0) throw new InvalidOperationException("Ilk kurulum zaten tamamlanmis.");
+                var username = ValidateUsername(request.Username);
+                ValidatePassword(request.Password);
+                var (hash, salt) = HashPassword(request.Password);
+                var user = new AppUser { Id = "admin", FullName = string.IsNullOrWhiteSpace(request.FullName) ? "Sistem Yoneticisi" : request.FullName.Trim(), Username = username, PasswordHash = hash, PasswordSalt = salt, RoleId = "admin", IsActive = true };
+                users.Insert(user);
+                var session = new UserSession { UserId = user.Id };
+                db.GetCollection<UserSession>("sessions").Insert(session);
+                return new LoginResponse { Token = session.Token, User = ToCurrentUser(db, user) };
+            }
+        }
+
+        public CurrentUserDto ChangeOwnPassword(HttpContext context, ChangePasswordRequest request)
+        {
+            lock (_lock)
+            {
+                using var db = new LiteDatabase(_dbFilePath);
+                var token = ReadToken(context);
+                var session = db.GetCollection<UserSession>("sessions").FindOne(x => x.Token == token);
+                var users = db.GetCollection<AppUser>("users");
+                var user = session == null ? null : users.FindOne(x => x.Id == session.UserId);
+                if (user == null || session!.ExpiresAt < DateTime.Now || !VerifyPassword(request.CurrentPassword, user.PasswordHash, user.PasswordSalt))
+                    throw new UnauthorizedAccessException("Mevcut sifre dogrulanamadi.");
+                ValidatePassword(request.NewPassword);
+                var (hash, salt) = HashPassword(request.NewPassword);
+                user.PasswordHash = hash;
+                user.PasswordSalt = salt;
+                user.MustChangePassword = false;
+                users.Update(user);
+                return ToCurrentUser(db, user);
             }
         }
 
@@ -140,6 +180,7 @@ namespace FtpManager.Api.Services
         public CurrentUserDto RequirePermission(HttpContext context, string permission)
         {
             var user = GetCurrentUser(context);
+            if (user.MustChangePassword) throw new UnauthorizedAccessException("Devam etmeden once parolanizi degistirin.");
             if (!user.Permissions.Contains(permission))
             {
                 throw new UnauthorizedAccessException("Bu islem icin yetkiniz yok.");
@@ -253,21 +294,11 @@ namespace FtpManager.Api.Services
             {
                 using var db = new LiteDatabase(_dbFilePath);
                 var users = db.GetCollection<AppUser>("users");
-                if (users.Exists(x => x.Username == request.Username.Trim()))
-                {
-                    throw new InvalidOperationException("Bu kullanici adi zaten kullaniliyor.");
-                }
-
+                var username = ValidateUsername(request.Username);
+                if (users.Exists(x => x.Username == username)) throw new InvalidOperationException("Bu kullanici adi zaten kullaniliyor.");
+                ValidatePassword(request.Password);
                 var (hash, salt) = HashPassword(request.Password);
-                var user = new AppUser
-                {
-                    FullName = request.FullName.Trim(),
-                    Username = request.Username.Trim(),
-                    PasswordHash = hash,
-                    PasswordSalt = salt,
-                    RoleId = request.RoleId,
-                    IsActive = request.IsActive
-                };
+                var user = new AppUser { FullName = request.FullName.Trim(), Username = username, PasswordHash = hash, PasswordSalt = salt, RoleId = request.RoleId, IsActive = request.IsActive };
                 users.Insert(user);
                 return ToUserDto(db, user);
             }
@@ -286,6 +317,7 @@ namespace FtpManager.Api.Services
                 user.IsActive = request.IsActive;
                 if (!string.IsNullOrWhiteSpace(request.Password))
                 {
+                    ValidatePassword(request.Password);
                     var (hash, salt) = HashPassword(request.Password);
                     user.PasswordHash = hash;
                     user.PasswordSalt = salt;
@@ -320,7 +352,8 @@ namespace FtpManager.Api.Services
                 Username = user.Username,
                 RoleId = user.RoleId,
                 RoleName = role?.Name ?? "Rolsuz",
-                Permissions = role?.Permissions ?? new List<string>()
+                Permissions = role?.Permissions ?? new List<string>(),
+                MustChangePassword = user.MustChangePassword
             };
         }
 
@@ -354,6 +387,20 @@ namespace FtpManager.Api.Services
             var saltBytes = RandomNumberGenerator.GetBytes(16);
             var hashBytes = Rfc2898DeriveBytes.Pbkdf2(password, saltBytes, 100_000, HashAlgorithmName.SHA256, 32);
             return (Convert.ToBase64String(hashBytes), Convert.ToBase64String(saltBytes));
+        }
+
+        private static void ValidatePassword(string password)
+        {
+            if (password.Length < 12 || !password.Any(char.IsUpper) || !password.Any(char.IsLower) || !password.Any(char.IsDigit) || !password.Any(ch => !char.IsLetterOrDigit(ch)))
+                throw new InvalidOperationException("Sifre en az 12 karakter olmali; buyuk harf, kucuk harf, rakam ve sembol icermelidir.");
+        }
+
+        private static string ValidateUsername(string username)
+        {
+            var value = username.Trim();
+            if (value.Length is < 3 or > 64 || value.Any(ch => !(char.IsLetterOrDigit(ch) || ch is '.' or '_' or '-')))
+                throw new InvalidOperationException("Kullanici adi 3-64 karakter olmali ve sadece harf, rakam, nokta, tire veya alt cizgi icermelidir.");
+            return value;
         }
 
         private static bool VerifyPassword(string password, string hash, string salt)

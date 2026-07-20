@@ -58,7 +58,7 @@ function AccessManager({
         </div>
 
         {accessTab === 'users' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 items-start gap-6">
             <form onSubmit={saveUser} className="bg-white border border-gray-200 rounded-lg p-5 shadow-sm flex flex-col gap-4 h-fit">
               <h3 className="text-lg font-bold text-gray-800">{editingUserId ? 'Uyeyi Guncelle' : 'Yeni Uye'}</h3>
               <input placeholder="Ad Soyad" value={userForm.fullName} onChange={(e) => setUserForm((p) => ({ ...p, fullName: e.target.value }))} className="border border-gray-200 rounded px-3 py-2 text-sm" />
@@ -118,9 +118,9 @@ function AccessManager({
               </div>
             </form>
 
-            <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="lg:col-span-2 self-start grid grid-cols-1 md:grid-cols-2 items-start content-start gap-4">
               {roles.map((role) => (
-                <div key={role.id} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm flex flex-col gap-3">
+                <div key={role.id} className="h-fit bg-white border border-gray-200 rounded-lg p-4 shadow-sm flex flex-col gap-3">
                   <div className="flex justify-between gap-3">
                     <div>
                       <h4 className="font-extrabold text-gray-800">{role.name}</h4>
@@ -131,7 +131,7 @@ function AccessManager({
                   <div className="flex flex-wrap gap-1">
                     {role.permissions.map((permission) => <span key={permission} className="text-[10px] bg-gray-100 text-gray-600 rounded px-2 py-1 font-semibold">{permissionLabel(permission)}</span>)}
                   </div>
-                  <div className="flex gap-2 mt-auto">
+                  <div className="flex gap-2 mt-1">
                     <button type="button" onClick={() => { setEditingRoleId(role.id); setRoleForm({ name: role.name, description: role.description || '', permissions: role.permissions || [] }); }} className="flex-1 bg-gray-100 text-gray-700 rounded py-1.5 text-xs font-bold">Duzenle</button>
                     <button type="button" onClick={() => deleteRole(role.id)} disabled={role.id === 'admin'} className="flex-1 bg-red-50 text-red-600 rounded py-1.5 text-xs font-bold disabled:text-gray-400 disabled:bg-gray-100">Sil</button>
                   </div>

@@ -3,6 +3,7 @@ using FtpManager.Api.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 namespace FtpManager.Api.Services
@@ -13,6 +14,7 @@ namespace FtpManager.Api.Services
         private readonly string _username;
         private readonly string _password;
         private readonly int _port;
+        private readonly bool _useTls;
         private readonly ILogService _customLogger;
 
         public FtpService(IConfiguration configuration, ILogService customLogger, Microsoft.AspNetCore.Http.IHttpContextAccessor httpContextAccessor, LocalFtpServer localFtpServer)
@@ -35,6 +37,22 @@ namespace FtpManager.Api.Services
                         _port = config.Port;
                         _username = config.Username;
                         _password = config.Password;
+                        _useTls = config.TlsEnabled;
+
+                        if (_useTls)
+                        {
+                            if (string.IsNullOrWhiteSpace(config.CertificatePath) || !File.Exists(config.CertificatePath))
+                            {
+                                throw new InvalidOperationException("FTPS sunucusunun sertifikası bulunamadı.");
+                            }
+
+                            var presentedFingerprint = context.Request.Headers["X-FTP-Certificate-Fingerprint"].ToString();
+                            var expectedFingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(config.CertificatePath)));
+                            if (string.IsNullOrWhiteSpace(presentedFingerprint) || !string.Equals(presentedFingerprint, expectedFingerprint, StringComparison.OrdinalIgnoreCase))
+                            {
+                                throw new UnauthorizedAccessException("Bu FTPS sunucusuna bağlanmak için eşleşen .crt sertifikasını seçin.");
+                            }
+                        }
 
                         // Override username/password if user sent them dynamically from UI
                         if (context.Request.Headers.TryGetValue("X-FTP-Username", out var customUser))
@@ -49,29 +67,29 @@ namespace FtpManager.Api.Services
                     }
                 }
 
-                if (context.Request.Headers.TryGetValue("X-FTP-Host", out var hVal) &&
-                    context.Request.Headers.TryGetValue("X-FTP-Port", out var pVal) &&
-                    context.Request.Headers.TryGetValue("X-FTP-Username", out var uVal) &&
-                    context.Request.Headers.TryGetValue("X-FTP-Password", out var passVal))
-                {
-                    _host = hVal.ToString();
-                    _port = int.TryParse(pVal.ToString(), out var p) ? p : 21;
-                    _username = uVal.ToString();
-                    _password = passVal.ToString();
-                    return;
-                }
             }
 
-            _host = configuration["FtpSettings:Host"] ?? "127.0.0.1";
-            _username = configuration["FtpSettings:Username"] ?? "ftpadmin";
-            _password = configuration["FtpSettings:Password"] ?? "admin123";
-            _port = int.TryParse(configuration["FtpSettings:Port"], out var p2) ? p2 : 2121;
+            // The controller is also used for server-management endpoints that do not
+            // open an FTP connection. Keep construction inert, while connection
+            // attempts without a managed server selection fail below.
+            _host = string.Empty;
+            _username = string.Empty;
+            _password = string.Empty;
+            _port = 0;
+            _useTls = false;
         }
 
         private async Task<AsyncFtpClient> CreateClientAsync()
         {
+            if (string.IsNullOrWhiteSpace(_host) || _port is < 1 or > 65535)
+                throw new InvalidOperationException("Yonetilen bir FTP sunucusu secilmeden baglanti kurulamaz.");
             var client = new AsyncFtpClient(_host, _username, _password, _port);
             client.Config.DataConnectionType = FtpDataConnectionType.AutoPassive;
+            if (_useTls)
+            {
+                client.Config.EncryptionMode = FtpEncryptionMode.Implicit;
+                client.Config.ValidateAnyCertificate = true;
+            }
             await client.Connect();
             return client;
         }
@@ -208,8 +226,11 @@ namespace FtpManager.Api.Services
         {
             try
             {
-                using var client = await CreateClientAsync();
-                await client.Disconnect();
+                var client = await CreateClientAsync();
+                // A successful authenticated connection is sufficient for the login check.
+                // Cleanup errors from a peer closing a TLS stream must not turn a valid
+                // login into a false negative.
+                try { client.Dispose(); } catch { }
                 return true;
             }
             catch (Exception ex)

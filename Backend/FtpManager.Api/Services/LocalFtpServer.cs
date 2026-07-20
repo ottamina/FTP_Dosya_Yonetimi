@@ -5,6 +5,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -18,7 +21,10 @@ namespace FtpManager.Api.Services
 {
     public class LocalFtpServer : BackgroundService
     {
+        private const int MaxBackupEntries = 10_000;
+        private const long MaxBackupUncompressedBytes = 4L * 1024 * 1024 * 1024;
         private readonly string _dbFilePath;
+        private readonly string _databaseFilePath;
         private readonly string _ftpBaseRoot;
         private readonly ILogger<LocalFtpServer> _logger;
         private readonly ILoggerFactory _loggerFactory;
@@ -47,6 +53,7 @@ namespace FtpManager.Api.Services
             var dbDir = Path.Combine(logsDir, "database");
             Directory.CreateDirectory(dbDir);
             var databasePath = Path.Combine(dbDir, "ftp_manager.db");
+            _databaseFilePath = databasePath;
             _dbFilePath = $"Filename={databasePath};Connection=shared";
             
             var legacyFtpBaseRoot = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "ftp_root");
@@ -103,13 +110,25 @@ namespace FtpManager.Api.Services
                             Host = "127.0.0.1",
                             Port = _defaultFtpPort,
                             Username = "ftpadmin",
-                            Password = "admin123",
+                            Password = GenerateSecurePassword(),
                             IsActive = true
                         });
+                    }
+                    else
+                    {
+                        var legacyDefault = col.FindOne(x => x.Id == "default");
+                        if (legacyDefault != null && legacyDefault.Password == "admin123")
+                        {
+                            legacyDefault.Password = GenerateSecurePassword();
+                            col.Update(legacyDefault);
+                            _logger.LogWarning("Legacy default FTP password was rotated automatically.");
+                        }
                     }
                 }
             }
         }
+
+        private static string GenerateSecurePassword() => $"Ftp!{Convert.ToHexString(RandomNumberGenerator.GetBytes(18))}a1";
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -190,9 +209,15 @@ namespace FtpManager.Api.Services
                 using (var db = new LiteDatabase(_dbFilePath))
                 {
                     var col = db.GetCollection<FtpServerConfig>("servers");
-                    var configs = col.FindAll();
+                    // LiteDB sorgusu tembel çalışır. Sertifika bilgisini kalıcılaştırmak
+                    // için aynı koleksiyona Update çağırmadan önce sonuçları somutlaştır.
+                    var configs = col.FindAll().ToList();
                     foreach (var config in configs)
                     {
+                        if (EnsureCertificateDetails(config))
+                        {
+                            col.Update(config);
+                        }
                         var hasInstance = _instances.TryGetValue(config.Id, out var instance);
                         list.Add(new FtpServerConfig
                         {
@@ -202,6 +227,14 @@ namespace FtpManager.Api.Services
                             Port = config.Port,
                             Username = config.Username,
                             Password = config.Password,
+                            RootFolder = config.RootFolder,
+                            TlsEnabled = config.TlsEnabled,
+                            CertificatePath = config.CertificatePath,
+                            PrivateKeyPath = config.PrivateKeyPath,
+                            CertificateSubject = config.CertificateSubject,
+                            CertificateFingerprint = config.CertificateFingerprint,
+                            CertificateExpiresAtUtc = config.CertificateExpiresAtUtc,
+                            CertificateExpiresSoon = config.CertificateExpiresAtUtc <= DateTime.UtcNow.AddDays(30),
                             IsActive = config.IsActive,
                             IsRunning = hasInstance && instance != null && instance.IsRunning,
                             HostWarning = GetHostWarning(config.Host),
@@ -226,6 +259,10 @@ namespace FtpManager.Api.Services
                     var col = db.GetCollection<FtpServerConfig>("servers");
                     var config = col.FindOne(c => c.Id == id);
                     if (config == null) return null;
+                    if (EnsureCertificateDetails(config))
+                    {
+                        col.Update(config);
+                    }
                     
                     var hasInstance = _instances.TryGetValue(config.Id, out var instance);
                     return new FtpServerConfig
@@ -236,6 +273,14 @@ namespace FtpManager.Api.Services
                         Port = config.Port,
                         Username = config.Username,
                         Password = config.Password,
+                        RootFolder = config.RootFolder,
+                        TlsEnabled = config.TlsEnabled,
+                        CertificatePath = config.CertificatePath,
+                        PrivateKeyPath = config.PrivateKeyPath,
+                        CertificateSubject = config.CertificateSubject,
+                        CertificateFingerprint = config.CertificateFingerprint,
+                        CertificateExpiresAtUtc = config.CertificateExpiresAtUtc,
+                        CertificateExpiresSoon = config.CertificateExpiresAtUtc <= DateTime.UtcNow.AddDays(30),
                         IsActive = config.IsActive,
                         IsRunning = hasInstance && instance != null && instance.IsRunning,
                         HostWarning = GetHostWarning(config.Host),
@@ -254,10 +299,18 @@ namespace FtpManager.Api.Services
             lock (_lock)
             {
                 newConfig.Host = (newConfig.Host ?? string.Empty).Trim();
+                newConfig.RootFolder = (newConfig.RootFolder ?? string.Empty).Trim();
                 if (string.IsNullOrWhiteSpace(newConfig.Host))
                 {
                     throw new InvalidOperationException("Host/IP boş olamaz.");
                 }
+
+                ServerStorage.ResolveExistingFolder(_ftpBaseRoot, newConfig.RootFolder);
+                if (newConfig.TlsEnabled && (string.IsNullOrWhiteSpace(newConfig.CertificatePath) || string.IsNullOrWhiteSpace(newConfig.PrivateKeyPath)))
+                {
+                    throw new InvalidOperationException("FTPS için .crt sertifikası ve .key özel anahtarı zorunludur.");
+                }
+                PopulateCertificateDetails(newConfig);
 
                 using (var db = new LiteDatabase(_dbFilePath))
                 {
@@ -290,7 +343,10 @@ namespace FtpManager.Api.Services
                         throw new InvalidOperationException($"Port {newConfig.Port} is already in use by another server.");
                     }
 
-                    newConfig.Id = Guid.NewGuid().ToString();
+                    if (string.IsNullOrWhiteSpace(newConfig.Id))
+                    {
+                        newConfig.Id = Guid.NewGuid().ToString();
+                    }
                     newConfig.IsRunning = false;
                     
                     col.Insert(newConfig);
@@ -319,6 +375,183 @@ namespace FtpManager.Api.Services
             }
         }
 
+        public List<string> GetRootFolders()
+        {
+            if (!Directory.Exists(_ftpBaseRoot))
+            {
+                return new List<string>();
+            }
+
+            // Kullanıcının var olan dosya klasörleri alt seviyede de olabilir (ör.
+            // default/data/arsiv). Yalnızca teknik sarmal klasörleri ve çöp kutusunu
+            // gizle; gerçek içerik klasörleri yeni FTP kökü olarak seçilebilsin.
+            return Directory.EnumerateDirectories(_ftpBaseRoot, "*", SearchOption.AllDirectories)
+                .Where(folder => IsSelectableRootFolder(Path.GetRelativePath(_ftpBaseRoot, folder)))
+                .Select(folder => Path.GetRelativePath(_ftpBaseRoot, folder).Replace('\\', '/'))
+                .OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static bool IsSelectableRootFolder(string relativePath)
+        {
+            var segments = relativePath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length == 0 || segments.Any(segment => string.Equals(segment, ".ftp-manager-trash", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            // GUID ile başlayan ağaçlar uygulamanın yönettiği sunucu depolamasıdır.
+            if (Guid.TryParse(segments[0], out _)) return false;
+
+            // "default" kullanıcıya en üst erişilebilir kök olarak gösterilir.
+            // Teknik data katmanı seçicide gösterilmez; çözümleme sırasında data'ya bağlanır.
+            return !(segments.Length == 2 && string.Equals(segments[0], "default", StringComparison.OrdinalIgnoreCase) && string.Equals(segments[1], "data", StringComparison.OrdinalIgnoreCase));
+        }
+
+        public async Task WriteBackupAsync(Stream destination, CancellationToken cancellationToken)
+        {
+            using (var archive = new ZipArchive(destination, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                await AddDirectoryAsync(archive, _ftpBaseRoot, "ftp_root", cancellationToken);
+                await AddFileIfExistsAsync(archive, _databaseFilePath, "database/ftp_servers.db", cancellationToken);
+                var certificateDirectory = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "certificates");
+                await AddDirectoryAsync(archive, certificateDirectory, "certificates", cancellationToken);
+            }
+        }
+
+        public async Task<string> CreateBackupFileAsync(CancellationToken cancellationToken)
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"ftp-manager-backup-{Guid.NewGuid():N}.zip");
+            try
+            {
+                await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 128, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                await WriteBackupAsync(stream, cancellationToken);
+                return path;
+            }
+            catch
+            {
+                if (File.Exists(path)) File.Delete(path);
+                throw;
+            }
+        }
+
+        public async Task RestoreBackupAsync(Stream zipStream)
+        {
+            var staging = Path.Combine(Path.GetTempPath(), $"ftp-manager-restore-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(staging);
+            try
+            {
+                using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Read, leaveOpen: true))
+                {
+                    if (archive.Entries.Count > MaxBackupEntries)
+                        throw new InvalidOperationException("Yedek arsivinde cok fazla dosya var.");
+                    long uncompressedBytes = 0;
+                    foreach (var entry in archive.Entries)
+                    {
+                        if (string.IsNullOrWhiteSpace(entry.Name)) continue;
+                        if (entry.Length < 0 || entry.Length > MaxBackupUncompressedBytes ||
+                            (uncompressedBytes += entry.Length) > MaxBackupUncompressedBytes)
+                            throw new InvalidOperationException("Yedek arsivi izin verilen acilmis boyutu asiyor.");
+                        var destination = Path.GetFullPath(Path.Combine(staging, entry.FullName));
+                        if (!destination.StartsWith(Path.GetFullPath(staging) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException("Yedek arsivinde gecersiz yol bulundu.");
+                        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                        entry.ExtractToFile(destination, overwrite: true);
+                    }
+                }
+
+                var restoredRoot = Path.Combine(staging, "ftp_root");
+                var restoredDb = Path.Combine(staging, "database", "ftp_servers.db");
+                if (!Directory.Exists(restoredRoot) || !File.Exists(restoredDb))
+                    throw new InvalidOperationException("Gecerli bir FTP Manager yedegi secin.");
+
+                lock (_lock)
+                {
+                    foreach (var instance in _instances.Values) instance.StopAsync().GetAwaiter().GetResult();
+                    _instances.Clear();
+                    if (Directory.Exists(_ftpBaseRoot)) Directory.Delete(_ftpBaseRoot, recursive: true);
+                    Directory.CreateDirectory(_ftpBaseRoot);
+                    CopyDirectory(restoredRoot, _ftpBaseRoot, overwrite: true);
+                    File.Copy(restoredDb, _databaseFilePath, overwrite: true);
+                    var restoredCertificates = Path.Combine(staging, "certificates");
+                    var certificateDirectory = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "certificates");
+                    if (Directory.Exists(certificateDirectory)) Directory.Delete(certificateDirectory, recursive: true);
+                    if (Directory.Exists(restoredCertificates)) CopyDirectory(restoredCertificates, certificateDirectory, overwrite: true);
+                }
+                foreach (var server in GetServers().Where(server => server.IsActive))
+                    StartServer(server.Id);
+            }
+            finally
+            {
+                if (Directory.Exists(staging)) Directory.Delete(staging, recursive: true);
+            }
+        }
+
+        private static async Task AddDirectoryAsync(ZipArchive archive, string sourceDirectory, string archiveDirectory, CancellationToken cancellationToken)
+        {
+            if (!Directory.Exists(sourceDirectory)) return;
+            foreach (var file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+                await AddFileAsync(archive, file, $"{archiveDirectory}/{Path.GetRelativePath(sourceDirectory, file).Replace('\\', '/')}", cancellationToken);
+        }
+
+        private static async Task AddFileIfExistsAsync(ZipArchive archive, string file, string archivePath, CancellationToken cancellationToken)
+        {
+            if (File.Exists(file)) await AddFileAsync(archive, file, archivePath, cancellationToken);
+        }
+
+        private static async Task AddFileAsync(ZipArchive archive, string file, string archivePath, CancellationToken cancellationToken)
+        {
+            var entry = archive.CreateEntry(archivePath, CompressionLevel.Fastest);
+            await using var input = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 128, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            await using var output = entry.Open();
+            await input.CopyToAsync(output, 1024 * 128, cancellationToken);
+        }
+
+        private static void CopyDirectory(string source, string destination, bool overwrite)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (var directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
+            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+            {
+                var output = Path.Combine(destination, Path.GetRelativePath(source, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+                File.Copy(file, output, overwrite);
+            }
+        }
+
+        private static void PopulateCertificateDetails(FtpServerConfig config)
+        {
+            if (!config.TlsEnabled || string.IsNullOrWhiteSpace(config.CertificatePath) || !File.Exists(config.CertificatePath)) return;
+            using var certificate = X509Certificate2.CreateFromPemFile(config.CertificatePath, config.PrivateKeyPath);
+            config.CertificateSubject = certificate.Subject;
+            config.CertificateFingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(config.CertificatePath)));
+            config.CertificateExpiresAtUtc = certificate.NotAfter.ToUniversalTime();
+            config.CertificateExpiresSoon = config.CertificateExpiresAtUtc <= DateTime.UtcNow.AddDays(30);
+        }
+
+        private bool EnsureCertificateDetails(FtpServerConfig config)
+        {
+            if (!config.TlsEnabled ||
+                (!string.IsNullOrWhiteSpace(config.CertificateSubject) &&
+                 !string.IsNullOrWhiteSpace(config.CertificateFingerprint) &&
+                 config.CertificateExpiresAtUtc.HasValue))
+            {
+                return false;
+            }
+
+            try
+            {
+                PopulateCertificateDetails(config);
+                return !string.IsNullOrWhiteSpace(config.CertificateSubject);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FTPS certificate metadata could not be read for server {ServerId}", config.Id);
+                return false;
+            }
+        }
+
         public void DeleteServer(string id)
         {
             if (id == "default")
@@ -328,11 +561,13 @@ namespace FtpManager.Api.Services
 
             lock (_lock)
             {
+                FtpServerConfig? configToDelete = null;
                 using (var db = new LiteDatabase(_dbFilePath))
                 {
                     var col = db.GetCollection<FtpServerConfig>("servers");
                     var config = col.FindOne(c => c.Id == id);
                     if (config == null) return;
+                    configToDelete = config;
 
                     _sftpProvisioner.Deprovision(config);
 
@@ -343,6 +578,12 @@ namespace FtpManager.Api.Services
                     }
 
                     col.Delete(id);
+                }
+
+                foreach (var certificatePath in new[] { configToDelete!.CertificatePath, configToDelete.PrivateKeyPath }
+                    .Where(path => !string.IsNullOrWhiteSpace(path)))
+                {
+                    try { File.Delete(certificatePath!); } catch { }
                 }
 
                 // Clean directory

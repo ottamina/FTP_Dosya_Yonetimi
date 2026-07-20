@@ -1,6 +1,7 @@
 using FtpManager.Api.Models;
 using FtpManager.Api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System;
 
 namespace FtpManager.Api.Controllers
@@ -19,6 +20,7 @@ namespace FtpManager.Api.Controllers
         }
 
         [HttpPost("login")]
+        [EnableRateLimiting("login")]
         public IActionResult Login([FromBody] LoginRequest request)
         {
             try
@@ -32,6 +34,24 @@ namespace FtpManager.Api.Controllers
                 _logger.LogWarning("UYGULAMA_GIRIS_HATA", $"Basarisiz uygulama girisi: {request.Username}", request.Username, null);
                 return Unauthorized(ex.Message);
             }
+        }
+
+        [HttpGet("setup-status")]
+        public IActionResult SetupStatus() => Ok(new { requiresSetup = _accessService.RequiresInitialSetup() });
+
+        [HttpPost("setup")]
+        [EnableRateLimiting("login")]
+        public IActionResult Setup([FromBody] InitialSetupRequest request)
+        {
+            try { return Ok(_accessService.CompleteInitialSetup(request)); }
+            catch (Exception ex) { return BadRequest(ex.Message); }
+        }
+
+        [HttpPost("change-password")]
+        public IActionResult ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            try { return Ok(_accessService.ChangeOwnPassword(HttpContext, request)); }
+            catch (Exception ex) { return Unauthorized(ex.Message); }
         }
 
         [HttpGet("me")]

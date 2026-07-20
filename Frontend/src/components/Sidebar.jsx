@@ -13,6 +13,9 @@ function Sidebar({
   setPassword,
   showPassword,
   setShowPassword,
+  requiresCertificate,
+  trustedCertificate,
+  onTrustedCertificateChange,
   handleMockLogin,
   searchQuery,
   setSearchQuery,
@@ -35,7 +38,7 @@ function Sidebar({
   onMoveItem
 }) {
   return (
-    <aside className="w-[360px] border-r border-gray-200 bg-white flex flex-col p-5 overflow-y-auto">
+    <aside className="file-explorer w-[360px] border-r border-gray-200 bg-white flex flex-col p-5 overflow-y-auto">
       {/* Section Header */}
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-lg font-bold text-gray-800">Dosya Yapısı</h2>
@@ -122,7 +125,7 @@ function Sidebar({
       </div>
 
       {/* Credentials Inputs row */}
-      <form onSubmit={handleMockLogin} className="flex gap-2 items-center mb-4">
+      <form onSubmit={handleMockLogin} className="flex flex-wrap gap-2 items-center mb-4">
         <div className="relative flex-1">
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">
             <i className="fa-solid fa-user"></i>
@@ -165,6 +168,22 @@ function Sidebar({
         >
           <i className="fa-solid fa-arrow-right-to-bracket text-sm px-1"></i>
         </button>
+
+        {requiresCertificate && (
+          <label className="w-full rounded border border-blue-200 bg-blue-50 px-2 py-2 text-[11px] text-blue-800">
+            <span className="block font-bold">FTPS sertifikası (.crt)</span>
+            <input
+              key={selectedServerId}
+              type="file"
+              accept=".crt"
+              required
+              onChange={(event) => onTrustedCertificateChange(event.target.files?.[0] || null)}
+              className="mt-1 block w-full text-[11px]"
+              data-testid="ftp-certificate"
+            />
+            <span className="mt-1 block text-blue-700">{trustedCertificate ? `Seçildi: ${trustedCertificate.name}` : 'Bağlantı için sunucunun sertifikasını seçin.'}</span>
+          </label>
+        )}
       </form>
 
       {/* Search Box */}

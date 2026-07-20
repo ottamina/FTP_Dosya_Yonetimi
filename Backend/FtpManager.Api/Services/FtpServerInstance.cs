@@ -3,6 +3,9 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.NetworkInformation;
+using System.Net.Security;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +20,7 @@ namespace FtpManager.Api.Services
         private readonly FtpServerConfig _config;
         private readonly string _ftpRoot;
         private readonly ILogger _logger;
+        private readonly X509Certificate2? _certificate;
         private TcpListener? _listener;
         private IPAddress? _boundAddress;
         private CancellationTokenSource? _cts;
@@ -33,8 +37,15 @@ namespace FtpManager.Api.Services
             _config = config;
             _logger = logger;
             
-            // Define unique folder path for this FTP server instance
-            _ftpRoot = ServerStorage.EnsureLayout(baseFtpRoot, config.Id).DataDirectory;
+            // New servers are restricted to an existing folder chosen under ftp_root.
+            // Legacy records without a selection preserve their original storage layout.
+            _ftpRoot = string.IsNullOrWhiteSpace(config.RootFolder)
+                ? ServerStorage.EnsureLayout(baseFtpRoot, config.Id).DataDirectory
+                : ServerStorage.ResolveExistingFolder(baseFtpRoot, config.RootFolder);
+            if (config.TlsEnabled)
+            {
+                _certificate = X509Certificate2.CreateFromPemFile(config.CertificatePath!, config.PrivateKeyPath!);
+            }
         }
 
         public void Start()
@@ -119,7 +130,15 @@ namespace FtpManager.Api.Services
         private async Task HandleClientAsync(TcpClient tcpClient, CancellationToken cancellationToken)
         {
             using var client = tcpClient;
-            using var stream = client.GetStream();
+            using var networkStream = client.GetStream();
+            Stream stream = networkStream;
+            if (_certificate != null)
+            {
+                var tlsStream = new SslStream(networkStream, leaveInnerStreamOpen: false);
+                await tlsStream.AuthenticateAsServerAsync(CreateTlsServerOptions(), cancellationToken);
+                stream = tlsStream;
+            }
+            using var controlStream = stream;
             var utf8WithoutBom = new UTF8Encoding(false);
             using var reader = new StreamReader(stream, utf8WithoutBom);
             using var writer = new StreamWriter(stream, utf8WithoutBom) { AutoFlush = true };
@@ -130,6 +149,7 @@ namespace FtpManager.Api.Services
             bool isLoggedIn = false;
             string currentDirectory = "/";
             string? renameFromPath = null;
+            bool protectDataChannel = _certificate != null;
 
             TcpListener? passiveListener = null;
             TcpClient? passiveClient = null;
@@ -195,7 +215,21 @@ namespace FtpManager.Api.Services
                         await writer.WriteLineAsync("211-Features:");
                         await writer.WriteLineAsync(" UTF8");
                         await writer.WriteLineAsync(" EPSV");
+                        if (_certificate != null)
+                        {
+                            await writer.WriteLineAsync(" PBSZ");
+                            await writer.WriteLineAsync(" PROT");
+                        }
                         await writer.WriteLineAsync("211 End");
+                    }
+                    else if (cmd == "PBSZ" && _certificate != null)
+                    {
+                        await writer.WriteLineAsync("200 PBSZ=0");
+                    }
+                    else if (cmd == "PROT" && _certificate != null)
+                    {
+                        protectDataChannel = true;
+                        await writer.WriteLineAsync("200 Data channel protection enabled");
                     }
                     else if (cmd == "OPTS")
                     {
@@ -521,8 +555,8 @@ namespace FtpManager.Api.Services
                             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
                             passiveClient = await OpenDataClientAsync(passiveListener, activeDataEndpoint, linkedCts.Token);
-                            using var dataStream = passiveClient.GetStream();
-                            using var dataWriter = new StreamWriter(dataStream, utf8WithoutBom);
+                            using Stream dataStream = await CreateDataStreamAsync(passiveClient, protectDataChannel, linkedCts.Token);
+                            using var dataWriter = new StreamWriter(dataStream, utf8WithoutBom, bufferSize: 1024, leaveOpen: true);
 
                             string listPath = currentDirectory;
                             if (!string.IsNullOrEmpty(args) && !args.StartsWith("-"))
@@ -563,6 +597,12 @@ namespace FtpManager.Api.Services
                                     }
                                 }
                                 await dataWriter.FlushAsync();
+                                await dataWriter.DisposeAsync();
+                                if (dataStream is SslStream tlsDataStream)
+                                {
+                                    await tlsDataStream.ShutdownAsync();
+                                }
+                                await dataStream.DisposeAsync();
                             }
 
                             await writer.WriteLineAsync("226 Transfer complete");
@@ -597,7 +637,7 @@ namespace FtpManager.Api.Services
                             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
                             passiveClient = await OpenDataClientAsync(passiveListener, activeDataEndpoint, linkedCts.Token);
-                            using var dataStream = passiveClient.GetStream();
+                            using Stream dataStream = await CreateDataStreamAsync(passiveClient, protectDataChannel, linkedCts.Token);
 
                             string targetFile = NormalizePath(currentDirectory, args);
                             string physicalPath = Path.GetFullPath(Path.Combine(_ftpRoot, targetFile.TrimStart('/')));
@@ -619,6 +659,11 @@ namespace FtpManager.Api.Services
                                 await dataStream.CopyToAsync(fs, linkedCts.Token);
                             }
 
+                            if (dataStream is SslStream tlsDataStream)
+                            {
+                                await tlsDataStream.ShutdownAsync();
+                            }
+                            await dataStream.DisposeAsync();
                             await writer.WriteLineAsync("226 Transfer complete");
                         }
                         catch (Exception ex)
@@ -656,13 +701,18 @@ namespace FtpManager.Api.Services
                                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
                                 passiveClient = await OpenDataClientAsync(passiveListener, activeDataEndpoint, linkedCts.Token);
-                                using var dataStream = passiveClient.GetStream();
+                                using Stream dataStream = await CreateDataStreamAsync(passiveClient, protectDataChannel, linkedCts.Token);
 
                                 using (var fs = new FileStream(physicalPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true))
                                 {
                                     await fs.CopyToAsync(dataStream, linkedCts.Token);
                                 }
                                 await dataStream.FlushAsync();
+                                if (dataStream is SslStream tlsDataStream)
+                                {
+                                    await tlsDataStream.ShutdownAsync();
+                                }
+                                await dataStream.DisposeAsync();
 
                                 await writer.WriteLineAsync("226 Transfer complete");
                             }
@@ -823,6 +873,30 @@ namespace FtpManager.Api.Services
             var address = IPAddress.Parse(parts[2]);
             var port = int.Parse(parts[3]);
             return new IPEndPoint(address, port);
+        }
+
+        private async Task<Stream> CreateDataStreamAsync(TcpClient dataClient, bool protectDataChannel, CancellationToken cancellationToken)
+        {
+            var networkStream = dataClient.GetStream();
+            if (_certificate == null || !protectDataChannel)
+            {
+                return networkStream;
+            }
+
+            var tlsStream = new SslStream(networkStream, leaveInnerStreamOpen: false);
+            await tlsStream.AuthenticateAsServerAsync(CreateTlsServerOptions(), cancellationToken);
+            return tlsStream;
+        }
+
+        private SslServerAuthenticationOptions CreateTlsServerOptions()
+        {
+            return new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _certificate!,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                ClientCertificateRequired = false,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+            };
         }
 
         private static async Task<TcpClient> OpenDataClientAsync(TcpListener? passiveListener, IPEndPoint? activeEndpoint, CancellationToken cancellationToken)

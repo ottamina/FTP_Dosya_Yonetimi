@@ -47,7 +47,7 @@ function FolderTree({
     const items = folderData[path] || [];
     
     return (
-      <div className="pl-4 ml-1.5 border-l border-gray-200">
+      <div className="folder-tree pl-4 ml-1.5 border-l border-gray-200">
         {items.map((item) => {
           if (item.isFolder) {
             const isOpen = !!expandedFolders[item.fullName];
@@ -59,8 +59,8 @@ function FolderTree({
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, item)}
-                  className={`flex items-center justify-between p-1.5 border border-transparent rounded hover:bg-gray-100 cursor-pointer select-none group transition-all duration-200 ${
-                    selectedPath === item.fullName ? 'bg-blue-50 text-blue-700 font-semibold' : ''
+                  className={`explorer-tree-item flex items-center justify-between p-1.5 border border-transparent rounded hover:bg-gray-100 cursor-pointer select-none group transition-all duration-200 ${
+                    selectedPath === item.fullName ? 'explorer-tree-item--selected bg-blue-50 text-blue-700 font-semibold' : ''
                   }`}
                   onClick={() => handleFolderClick(item)}
                   data-testid={`tree-item-${item.fullName}`}
@@ -76,7 +76,7 @@ function FolderTree({
                         e.stopPropagation(); 
                         onRequestRename(item);
                       }}
-                      className="text-blue-500 hover:text-blue-700 p-0.5 hover:bg-white rounded shadow-sm"
+                      className="explorer-tree-action explorer-tree-action--edit text-blue-500 hover:text-blue-700 p-0.5 hover:bg-white rounded shadow-sm"
                       title="Yeniden Adlandır"
                       data-testid={`rename-item-${item.fullName}`}
                     >
@@ -85,7 +85,7 @@ function FolderTree({
                     <button 
                       type="button"
                       onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
-                      className="text-red-500 hover:text-red-700 p-0.5 hover:bg-white rounded shadow-sm"
+                      className="explorer-tree-action explorer-tree-action--delete text-red-500 hover:text-red-700 p-0.5 hover:bg-white rounded shadow-sm"
                       title="Sil"
                       data-testid={`delete-item-${item.fullName}`}
                     >
@@ -102,8 +102,8 @@ function FolderTree({
                 key={item.fullName} 
                 draggable="true"
                 onDragStart={(e) => handleDragStart(e, item)}
-                className={`flex items-center justify-between p-1.5 rounded hover:bg-gray-100 cursor-pointer select-none group transition ${
-                  selectedPath === item.fullName ? 'bg-blue-50 text-blue-700 font-semibold' : ''
+                className={`explorer-tree-item flex items-center justify-between p-1.5 rounded hover:bg-gray-100 cursor-pointer select-none group transition ${
+                  selectedPath === item.fullName ? 'explorer-tree-item--selected bg-blue-50 text-blue-700 font-semibold' : ''
                 }`}
                 onClick={() => {
                   setSelectedPath(item.fullName);
@@ -119,7 +119,7 @@ function FolderTree({
                   <button 
                     type="button"
                     onClick={(e) => { e.stopPropagation(); handleDownloadFile(item); }}
-                    className="text-green-600 hover:text-green-800 p-0.5 hover:bg-white rounded shadow-sm"
+                    className="explorer-tree-action explorer-tree-action--download text-green-600 hover:text-green-800 p-0.5 hover:bg-white rounded shadow-sm"
                     title="İndir"
                     data-testid={`download-item-${item.fullName}`}
                   >
@@ -131,7 +131,7 @@ function FolderTree({
                       e.stopPropagation(); 
                       onRequestRename(item);
                     }}
-                    className="text-blue-500 hover:text-blue-700 p-0.5 hover:bg-white rounded shadow-sm"
+                    className="explorer-tree-action explorer-tree-action--edit text-blue-500 hover:text-blue-700 p-0.5 hover:bg-white rounded shadow-sm"
                     title="Yeniden Adlandır"
                     data-testid={`rename-item-${item.fullName}`}
                   >
@@ -140,7 +140,7 @@ function FolderTree({
                   <button 
                     type="button"
                     onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
-                    className="text-red-500 hover:text-red-700 p-0.5 hover:bg-white rounded shadow-sm"
+                    className="explorer-tree-action explorer-tree-action--delete text-red-500 hover:text-red-700 p-0.5 hover:bg-white rounded shadow-sm"
                     title="Sil"
                     data-testid={`delete-item-${item.fullName}`}
                   >
@@ -156,13 +156,13 @@ function FolderTree({
   };
 
   return (
-    <div>
+    <div className="folder-tree">
       <div 
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={(e) => handleDrop(e, { fullName: '/', name: 'Kök Dizin' })}
-        className={`flex items-center justify-between p-2 rounded hover:bg-gray-100 cursor-pointer font-bold select-none text-[13px] mb-1 transition-all duration-200 border border-transparent ${
-          selectedPath === '/' ? 'bg-blue-50 text-blue-700' : 'text-gray-800'
+        className={`explorer-tree-item flex items-center justify-between p-2 rounded hover:bg-gray-100 cursor-pointer font-bold select-none text-[13px] mb-1 transition-all duration-200 border border-transparent ${
+          selectedPath === '/' ? 'explorer-tree-item--selected bg-blue-50 text-blue-700' : 'text-gray-800'
         }`}
         onClick={() => setSelectedPath('/')}
         data-testid="tree-root"

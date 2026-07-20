@@ -1,6 +1,11 @@
 using FtpManager.Api.Services;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
+const long maxRequestBytes = 2L * 1024 * 1024 * 1024;
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = maxRequestBytes);
+builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = maxRequestBytes);
 
 // 1. Controller Desteğini Ekleme
 builder.Services.AddControllers();
@@ -11,10 +16,18 @@ builder.Services.AddEndpointsApiExplorer();
 
 // 3. Bağımlılık Enjeksiyonu (Dependency Injection)
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+});
 builder.Services.AddSingleton<ILogService, LogService>();
 builder.Services.AddSingleton<AccessService>();
 builder.Services.AddSingleton<OpenSshSftpProvisioner>();
 builder.Services.AddSingleton<NgrokTunnelService>();
+builder.Services.AddSingleton<TrashService>();
 builder.Services.AddSingleton<LocalFtpServer>();
 builder.Services.AddHostedService<LocalFtpServer>(provider => provider.GetRequiredService<LocalFtpServer>());
 builder.Services.AddScoped<FtpService>();
@@ -42,6 +55,7 @@ if (!app.Environment.IsDevelopment() && !app.Configuration.GetValue<bool>("Disab
 
 // 7. CORS Politikasının Devreye Alınması
 app.UseCors("ReactCorsPolicy");
+app.UseRateLimiter();
 
 // 8. Yetkilendirme (Authorization) Middleware'i
 app.UseAuthorization();

@@ -1,5 +1,7 @@
 # Kod ve Servis Rehberi
 
+> Guncel guvenlik ve denetim davranisi: Dosya islemlerinde `ILogService`, HTTP oturumundaki aktor kullaniciyi ve rolunu otomatik kaydeder; bu nedenle oturumlu yukleme, indirme, silme ve tasima satirlarinda `Username`/`RoleName` bos kalmaz. Parca yuklemeleri guvenli `uploadId` dogrulamasindan gecer; keyfi `X-FTP-Host` hedefleri engellenir. Ilk kurulum sabit parola kullanmaz, eski `admin123` hesabi zorunlu parola degisimi ister. Giris denemeleri IP basina dakikada bes ile; yukleme ve geri yukleme 2 GB ile; ZIP acilimi 10.000 dosya ve 4 GB ile sinirlidir.
+
 Bu belge kaynak kodunu **dosya dosya** açıklar. Amaç her satırı Türkçeye çevirmek değil; her sınıfın sorumluluğunu, girdisini, çıktısını, bağımlılıklarını ve hata etkisini öğretmektir.
 
 ## 1. Backend başlangıcı

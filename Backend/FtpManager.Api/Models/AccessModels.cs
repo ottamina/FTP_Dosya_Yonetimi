@@ -51,6 +51,7 @@ namespace FtpManager.Api.Models
         public string PasswordSalt { get; set; } = string.Empty;
         public string RoleId { get; set; } = string.Empty;
         public bool IsActive { get; set; } = true;
+        public bool MustChangePassword { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.Now;
     }
 
@@ -70,6 +71,7 @@ namespace FtpManager.Api.Models
         public string RoleId { get; set; } = string.Empty;
         public string RoleName { get; set; } = string.Empty;
         public List<string> Permissions { get; set; } = new();
+        public bool MustChangePassword { get; set; }
     }
 
     public class UserDto
@@ -109,5 +111,18 @@ namespace FtpManager.Api.Models
         public string Name { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public List<string> Permissions { get; set; } = new();
+    }
+
+    public class InitialSetupRequest
+    {
+        public string FullName { get; set; } = "Sistem Yoneticisi";
+        public string Username { get; set; } = "admin";
+        public string Password { get; set; } = string.Empty;
+    }
+
+    public class ChangePasswordRequest
+    {
+        public string CurrentPassword { get; set; } = string.Empty;
+        public string NewPassword { get; set; } = string.Empty;
     }
 }

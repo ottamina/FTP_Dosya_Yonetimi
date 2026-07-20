@@ -21,7 +21,8 @@ function UploadPanel({
   expandedLogId,
   setExpandedLogId,
   uploadProgress,
-  uploadStatus
+  uploadStatus,
+  onOpenTrash
 }) {
   if (!isLoggedIn) {
     return (
@@ -43,6 +44,11 @@ function UploadPanel({
     <main className="flex-1 bg-white p-8 flex flex-col overflow-y-auto">
       <h2 className="text-2xl font-bold text-gray-800 mb-6">Dosya Yükleme</h2>
 
+      <div className="mb-6 flex justify-end">
+        <button type="button" onClick={onOpenTrash} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-100">
+          <i className="fa-solid fa-trash-can-arrow-up mr-1.5"></i>Cop kutusu
+        </button>
+      </div>
       {/* Drag & Drop Area */}
       <div 
         onDragOver={handleDragOver}

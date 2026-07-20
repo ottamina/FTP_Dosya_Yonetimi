@@ -10,7 +10,7 @@ RUN dotnet publish Backend/FtpManager.Api/FtpManager.Api.csproj \
     /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
-ARG TARGETARCH
+ARG TARGETARCH=amd64
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends openssh-server openssh-client curl \
     && rm -rf /var/lib/apt/lists/* \

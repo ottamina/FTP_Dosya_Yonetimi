@@ -13,24 +13,30 @@ namespace FtpManager.Api.Controllers
     [Route("api/[controller]")]
     public class FtpController : ControllerBase
     {
+        private const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
+        private const long MaxChunkBytes = 32L * 1024 * 1024;
+        private const int MaxChunks = 512;
         private readonly FtpService _ftpService;
         private readonly ILogService _customLogger;
         private readonly LocalFtpServer _localFtpServer;
         private readonly AccessService _accessService;
         private readonly NgrokTunnelService _ngrokTunnelService;
+        private readonly TrashService _trashService;
 
         public FtpController(
             FtpService ftpService,
             ILogService customLogger,
             LocalFtpServer localFtpServer,
             AccessService accessService,
-            NgrokTunnelService ngrokTunnelService)
+            NgrokTunnelService ngrokTunnelService,
+            TrashService trashService)
         {
             _ftpService = ftpService;
             _customLogger = customLogger;
             _localFtpServer = localFtpServer;
             _accessService = accessService;
             _ngrokTunnelService = ngrokTunnelService;
+            _trashService = trashService;
         }
 
         [HttpGet("list")]
@@ -41,7 +47,7 @@ namespace FtpManager.Api.Controllers
             try
             {
                 var items = await _ftpService.GetListAsync(path);
-                return Ok(items);
+                return Ok(path == "/" ? items.Where(item => !string.Equals(item.Name, ".ftp-manager-trash", StringComparison.OrdinalIgnoreCase)) : items);
             }
             catch (Exception ex)
             {
@@ -57,6 +63,8 @@ namespace FtpManager.Api.Controllers
             if (denial is not null) return denial;
             if (file == null || file.Length == 0)
                 return BadRequest("Geçersiz dosya.");
+
+            if (file.Length > MaxUploadBytes) return BadRequest("Dosya 2 GB sinirini asiyor.");
 
             try
             {
@@ -94,6 +102,10 @@ namespace FtpManager.Api.Controllers
                 return BadRequest("Geçersiz chunk.");
             if (string.IsNullOrEmpty(uploadId))
                 return BadRequest("Geçersiz uploadId.");
+
+            if (!IsSafeUploadId(uploadId) || chunkIndex < 0 || totalChunks is < 1 or > MaxChunks || chunkIndex >= totalChunks)
+                return BadRequest("Gecersiz parca yukleme bilgisi.");
+            if (file.Length > MaxChunkBytes) return BadRequest("Parca boyutu 32 MB sinirini asiyor.");
 
             try
             {
@@ -189,6 +201,7 @@ namespace FtpManager.Api.Controllers
         {
             var denial = DenyUnless(PermissionKeys.FilesUpload);
             if (denial is not null) return denial;
+            if (!IsSafeUploadId(uploadId)) return BadRequest("Gecersiz uploadId.");
             if (string.IsNullOrEmpty(uploadId))
                 return BadRequest("Geçersiz uploadId.");
 
@@ -268,7 +281,7 @@ namespace FtpManager.Api.Controllers
             try
             {
                 string decodedPath = Uri.UnescapeDataString(path);
-                await _ftpService.DeleteItemAsync(decodedPath, isFolder);
+                await _trashService.MoveToTrashAsync(_ftpService, GetSelectedServerId(), decodedPath, isFolder);
                 _customLogger.LogInfo("DOSYA_SIL", $"Öğe silindi: {decodedPath} (Klasör mü: {isFolder})");
                 return Ok(new { message = "Öge başarıyla silindi." });
             }
@@ -294,6 +307,30 @@ namespace FtpManager.Api.Controllers
             {
                 _customLogger.LogError("KLASOR_OLUSTUR", $"Klasör oluşturulamadı: {path}", ex);
                 return StatusCode(500, ex.Message);
+            }
+        }
+
+        [HttpGet("trash")]
+        public IActionResult GetTrash()
+        {
+            var denial = DenyUnless(PermissionKeys.FilesModify);
+            if (denial is not null) return denial;
+            return Ok(_trashService.Get(GetSelectedServerId()));
+        }
+
+        [HttpPost("trash/{id}/restore")]
+        public async Task<IActionResult> RestoreTrash(string id)
+        {
+            var denial = DenyUnless(PermissionKeys.FilesModify);
+            if (denial is not null) return denial;
+            try
+            {
+                await _trashService.RestoreAsync(_ftpService, GetSelectedServerId(), id);
+                return Ok(new { message = "Oge ozgun konumuna geri yuklendi." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
             }
         }
 
@@ -376,14 +413,113 @@ namespace FtpManager.Api.Controllers
             }
         }
 
-        [HttpPost("servers")]
-        public IActionResult AddServer([FromBody] FtpServerConfig config)
+        [HttpGet("root-folders")]
+        public IActionResult GetRootFolders()
         {
             try
             {
                 _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
+                return Ok(_localFtpServer.GetRootFolders());
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ex.Message);
+            }
+        }
+
+        [HttpPost("servers")]
+        public async Task<IActionResult> AddServer(
+            [FromForm] FtpServerConfig config,
+            [FromForm] IFormFile? certificate = null,
+            [FromForm] IFormFile? privateKey = null)
+        {
+            string? certificatePath = null;
+            string? privateKeyPath = null;
+            var uploadedCertificatePaths = new List<string>();
+            try
+            {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
+                var hasCertificate = certificate != null && certificate.Length > 0;
+                var hasPrivateKey = privateKey != null && privateKey.Length > 0;
+                if (hasCertificate != hasPrivateKey)
+                {
+                    return BadRequest("FTPS için .crt sertifikası ve .key özel anahtarı birlikte seçilmelidir.");
+                }
+                if (hasCertificate && (!certificate!.FileName.EndsWith(".crt", StringComparison.OrdinalIgnoreCase) ||
+                    !privateKey!.FileName.EndsWith(".key", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return BadRequest("Sertifika .crt, özel anahtar .key uzantılı olmalıdır.");
+                }
+
+                config.Id = Guid.NewGuid().ToString();
+                config.TlsEnabled = hasCertificate;
+                if (hasCertificate)
+                {
+                    var certificateDirectory = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "certificates");
+                    Directory.CreateDirectory(certificateDirectory);
+                    certificatePath = Path.Combine(certificateDirectory, $"{config.Id}.crt");
+                    privateKeyPath = Path.Combine(certificateDirectory, $"{config.Id}.key");
+                    config.CertificatePath = certificatePath;
+                    config.PrivateKeyPath = privateKeyPath;
+                    uploadedCertificatePaths.Add(certificatePath);
+                    uploadedCertificatePaths.Add(privateKeyPath);
+
+                    await using (var certificateStream = System.IO.File.Create(certificatePath))
+                    {
+                        await certificate!.CopyToAsync(certificateStream);
+                    }
+                    await using (var privateKeyStream = System.IO.File.Create(privateKeyPath))
+                    {
+                        await privateKey!.CopyToAsync(privateKeyStream);
+                    }
+
+                }
                 var created = _localFtpServer.AddServer(config);
                 return Ok(created);
+            }
+            catch (Exception ex)
+            {
+                foreach (var uploadedCertificatePath in uploadedCertificatePaths)
+                {
+                    if (System.IO.File.Exists(uploadedCertificatePath)) System.IO.File.Delete(uploadedCertificatePath);
+                }
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpGet("backup")]
+        public async Task<IActionResult> DownloadBackup()
+        {
+            try
+            {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
+                var filename = $"ftp-manager-backup-{DateTime.UtcNow:yyyyMMdd-HHmmss}.zip";
+                var backupPath = await _localFtpServer.CreateBackupFileAsync(HttpContext.RequestAborted);
+                Response.OnCompleted(() =>
+                {
+                    try { System.IO.File.Delete(backupPath); } catch { }
+                    return Task.CompletedTask;
+                });
+                return File(new FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 128, FileOptions.Asynchronous | FileOptions.SequentialScan), "application/zip", filename);
+            }
+            catch (Exception ex)
+            {
+                _customLogger.LogError("YEDEK_INDIR", "Yedek ZIP hazirlanamadi.", ex);
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("backup/restore")]
+        public async Task<IActionResult> RestoreBackup(IFormFile backup)
+        {
+            try
+            {
+                _accessService.RequirePermission(HttpContext, PermissionKeys.ServersManage);
+                if (backup == null || backup.Length == 0 || backup.Length > MaxUploadBytes || !backup.FileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                    return BadRequest("Gecerli bir .zip yedegi secin.");
+                await using var stream = backup.OpenReadStream();
+                await _localFtpServer.RestoreBackupAsync(stream);
+                return Ok(new { message = "Yedek geri yuklendi; tanimli sunucular yeniden baslatildi." });
             }
             catch (Exception ex)
             {
@@ -509,6 +645,10 @@ namespace FtpManager.Api.Controllers
             try
             {
                 var user = _accessService.GetCurrentUser(HttpContext);
+                if (user.MustChangePassword)
+                {
+                    return StatusCode(StatusCodes.Status403Forbidden, new { message = "Devam etmeden once parolanizi degistirin." });
+                }
                 if (!user.Permissions.Contains(permission))
                 {
                     return StatusCode(StatusCodes.Status403Forbidden, new { message = "Bu islem icin yetkiniz yok." });
@@ -520,5 +660,17 @@ namespace FtpManager.Api.Controllers
                 return Unauthorized(new { message = ex.Message });
             }
         }
+
+        private string GetSelectedServerId()
+        {
+            var id = HttpContext.Request.Headers["X-FTP-Server-Id"].ToString();
+            return string.IsNullOrWhiteSpace(id) ? "default" : id;
+        }
+
+        private static bool IsSafeUploadId(string? uploadId) =>
+            !string.IsNullOrWhiteSpace(uploadId) &&
+            uploadId.Length is >= 16 and <= 80 &&
+            uploadId.StartsWith("chunk_", StringComparison.Ordinal) &&
+            uploadId.All(ch => char.IsLetterOrDigit(ch) || ch is '_' or '-');
     }
 }

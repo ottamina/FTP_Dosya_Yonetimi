@@ -25,12 +25,14 @@ const getChunkSize = (fileSize) => {
 function App() {
   // Navigation State
   const [activeView, setActiveView] = useState('explorer'); // 'explorer' or 'servers'
-  const [appToken, setAppToken] = useState(() => localStorage.getItem('ftpManagerToken') || '');
+  const [appToken, setAppToken] = useState(() => sessionStorage.getItem('ftpManagerToken') || '');
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem('ftpManagerUser');
+    const saved = sessionStorage.getItem('ftpManagerUser');
     return saved ? JSON.parse(saved) : null;
   });
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [requiresInitialSetup, setRequiresInitialSetup] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
 
   // Access management state
   const [accessTab, setAccessTab] = useState('users');
@@ -48,8 +50,12 @@ function App() {
   const [selectedServerId, setSelectedServerId] = useState('default');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [trustedCertificate, setTrustedCertificate] = useState(null);
+  const [trustedCertificateFingerprint, setTrustedCertificateFingerprint] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [trashItems, setTrashItems] = useState([]);
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
 
   // New FTP Server form states
   const [newServerName, setNewServerName] = useState('');
@@ -57,6 +63,11 @@ function App() {
   const [newServerPort, setNewServerPort] = useState('');
   const [newServerUser, setNewServerUser] = useState('');
   const [newServerPass, setNewServerPass] = useState('');
+  const [rootFolders, setRootFolders] = useState([]);
+  const [newServerRootFolder, setNewServerRootFolder] = useState('');
+  const [newServerCertificate, setNewServerCertificate] = useState(null);
+  const [newServerPrivateKey, setNewServerPrivateKey] = useState(null);
+  const [newServerTlsEnabled, setNewServerTlsEnabled] = useState(false);
 
   // File tree flat-state
   const [folderData, setFolderData] = useState({ '/': [] });
@@ -133,6 +144,12 @@ function App() {
     }
   }, [appToken]);
 
+  useEffect(() => {
+    axios.get(`${ACCESS_API_BASE_URL}/setup-status`)
+      .then((response) => setRequiresInitialSetup(response.data.requiresSetup === true))
+      .catch(() => setRequiresInitialSetup(false));
+  }, []);
+
   const handleAppLogin = async (e) => {
     e.preventDefault();
     if (!loginForm.username || !loginForm.password) {
@@ -145,8 +162,8 @@ function App() {
       const response = await axios.post(`${ACCESS_API_BASE_URL}/login`, loginForm);
       setAppToken(response.data.token);
       setCurrentUser(response.data.user);
-      localStorage.setItem('ftpManagerToken', response.data.token);
-      localStorage.setItem('ftpManagerUser', JSON.stringify(response.data.user));
+      sessionStorage.setItem('ftpManagerToken', response.data.token);
+      sessionStorage.setItem('ftpManagerUser', JSON.stringify(response.data.user));
       setLoginForm({ username: '', password: '' });
       showToast('Uygulama girisi basarili.');
     } catch (error) {
@@ -161,8 +178,39 @@ function App() {
     setCurrentUser(null);
     setIsLoggedIn(false);
     setActiveView('explorer');
-    localStorage.removeItem('ftpManagerToken');
-    localStorage.removeItem('ftpManagerUser');
+    sessionStorage.removeItem('ftpManagerToken');
+    sessionStorage.removeItem('ftpManagerUser');
+  };
+
+  const handleInitialSetup = async (event) => {
+    event.preventDefault();
+    if (loginForm.password !== loginForm.confirmPassword) return showToast('Sifreler eslesmiyor.', 'error');
+    setLoading(true);
+    try {
+      const response = await axios.post(`${ACCESS_API_BASE_URL}/setup`, loginForm);
+      setAppToken(response.data.token);
+      setCurrentUser(response.data.user);
+      sessionStorage.setItem('ftpManagerToken', response.data.token);
+      sessionStorage.setItem('ftpManagerUser', JSON.stringify(response.data.user));
+      setRequiresInitialSetup(false);
+      setLoginForm({ username: '', password: '', confirmPassword: '', fullName: '' });
+      showToast('Guvenli yonetici hesabi olusturuldu.');
+    } catch (error) { showToast(`Kurulum basarisiz: ${error.response?.data || error.message}`, 'error'); }
+    finally { setLoading(false); }
+  };
+
+  const handlePasswordChange = async (event) => {
+    event.preventDefault();
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) return showToast('Sifreler eslesmiyor.', 'error');
+    setLoading(true);
+    try {
+      const response = await axios.post(`${ACCESS_API_BASE_URL}/change-password`, passwordForm);
+      setCurrentUser(response.data);
+      sessionStorage.setItem('ftpManagerUser', JSON.stringify(response.data));
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      showToast('Parola degistirildi.');
+    } catch (error) { showToast(`Parola degistirilemedi: ${error.response?.data || error.message}`, 'error'); }
+    finally { setLoading(false); }
   };
 
   // Fetch servers from backend
@@ -184,6 +232,16 @@ function App() {
       showToast('FTP sunucu listesi çekilemedi.', 'error');
     }
   }, [appToken, hasPermission, selectedServerId]);
+
+  const fetchRootFolders = useCallback(async () => {
+    if (!appToken || !hasPermission('servers.manage')) return;
+    try {
+      const response = await axios.get(`${API_BASE_URL}/root-folders`);
+      setRootFolders(response.data);
+    } catch (error) {
+      showToast(`FTP kök klasörleri alınamadı: ${error.response?.data || error.message}`, 'error');
+    }
+  }, [appToken, hasPermission]);
 
   const fetchSftpTunnel = useCallback(async (localPort = 2222) => {
     if (!appToken || !hasPermission('servers.view')) return;
@@ -233,7 +291,7 @@ function App() {
     try {
       const response = await axios.get(`${ACCESS_API_BASE_URL}/me`);
       setCurrentUser(response.data);
-      localStorage.setItem('ftpManagerUser', JSON.stringify(response.data));
+      sessionStorage.setItem('ftpManagerUser', JSON.stringify(response.data));
     } catch {
       handleLogout();
     }
@@ -245,16 +303,19 @@ function App() {
     fetchLogs(activeLogTab);
   }, [activeLogTab, fetchLogs]);
 
+  const getFtpHeaders = useCallback(() => ({
+    'X-FTP-Server-Id': selectedServerId,
+    'X-FTP-Username': username,
+    'X-FTP-Password': password,
+    ...(trustedCertificateFingerprint && { 'X-FTP-Certificate-Fingerprint': trustedCertificateFingerprint })
+  }), [selectedServerId, username, password, trustedCertificateFingerprint]);
+
   // Fetch directory listing
   const fetchFolder = useCallback(async (path) => {
     setLoading(true);
     try {
       const response = await axios.get(`${API_BASE_URL}/list?path=${encodeURIComponent(path)}`, {
-        headers: { 
-          'X-FTP-Server-Id': selectedServerId,
-          'X-FTP-Username': username,
-          'X-FTP-Password': password
-        }
+        headers: getFtpHeaders()
       });
       setFolderData(prev => ({
         ...prev,
@@ -268,7 +329,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [addLog, selectedServerId, username, password]);
+  }, [addLog, getFtpHeaders]);
 
   useEffect(() => {
     if (!appToken) return;
@@ -283,10 +344,11 @@ function App() {
     if (!appToken) return;
     const timer = setTimeout(() => {
       fetchFtpServers();
+      fetchRootFolders();
       fetchSftpTunnel();
     }, 0);
     return () => clearTimeout(timer);
-  }, [appToken, fetchFtpServers, fetchSftpTunnel]);
+  }, [appToken, fetchFtpServers, fetchRootFolders, fetchSftpTunnel]);
 
   useEffect(() => {
     if (activeView !== 'access') return;
@@ -325,6 +387,8 @@ function App() {
     setSelectedServerId(serverId);
     setUsername('');
     setPassword('');
+    setTrustedCertificate(null);
+    setTrustedCertificateFingerprint('');
     setIsLoggedIn(false);
     setFolderData({ '/': [] });
     setExpandedFolders({ '/': true });
@@ -332,6 +396,26 @@ function App() {
     setPreviewFile(null);
     setPreviewData(null);
   }, []);
+
+  const handleTrustedCertificateChange = async (file) => {
+    if (!file) {
+      setTrustedCertificate(null);
+      setTrustedCertificateFingerprint('');
+      return;
+    }
+
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      const fingerprint = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+      setTrustedCertificate(file);
+      setTrustedCertificateFingerprint(fingerprint);
+    } catch (error) {
+      console.error(error);
+      setTrustedCertificate(null);
+      setTrustedCertificateFingerprint('');
+      showToast('Sertifika dosyası okunamadı.', 'error');
+    }
+  };
 
   const getSelectedItem = useCallback(() => {
     for (const items of Object.values(folderData)) {
@@ -349,11 +433,25 @@ function App() {
     return selectedItem?.isFolder ? selectedPath || '/' : '/';
   }, [getSelectedItem, selectedPath]);
 
+  const getApiErrorMessage = (error, fallback = 'Bilinmeyen bir hata oluştu.') => {
+    const data = error?.response?.data;
+    if (typeof data === 'string' && data.trim()) return data;
+    if (data?.message) return data.message;
+    if (data?.errors && typeof data.errors === 'object') {
+      return Object.values(data.errors).flat().filter(Boolean).join(' ') || fallback;
+    }
+    return error?.message || fallback;
+  };
+
   // Server management functions
   const handleCreateServer = async (e) => {
     e.preventDefault();
-    if (!newServerName || !newServerHost || !newServerUser || !newServerPass) {
+    if (!newServerName || !newServerHost || !newServerUser || !newServerPass || !newServerRootFolder) {
       showToast('Lütfen tüm alanları doldurun.', 'error');
+      return;
+    }
+    if (newServerTlsEnabled && (!newServerCertificate || !newServerPrivateKey)) {
+      showToast('FTPS için .crt ve .key dosyalarını birlikte seçin.', 'error');
       return;
     }
 
@@ -364,14 +462,18 @@ function App() {
     }
 
     try {
-      const newConfig = {
-        name: newServerName,
-        host: newServerHost.trim(),
-        port: portNum,
-        username: newServerUser,
-        password: newServerPass,
-        isActive: true
-      };
+      const newConfig = new FormData();
+      newConfig.append('name', newServerName);
+      newConfig.append('host', newServerHost.trim());
+      newConfig.append('port', portNum.toString());
+      newConfig.append('username', newServerUser);
+      newConfig.append('password', newServerPass);
+      newConfig.append('rootFolder', newServerRootFolder);
+      newConfig.append('isActive', 'true');
+      if (newServerTlsEnabled) {
+        newConfig.append('certificate', newServerCertificate);
+        newConfig.append('privateKey', newServerPrivateKey);
+      }
       await axios.post(`${API_BASE_URL}/servers`, newConfig);
       showToast(`"${newServerName}" FTP sunucusu başarıyla oluşturuldu.`);
       
@@ -380,10 +482,15 @@ function App() {
       setNewServerPort('');
       setNewServerUser('');
       setNewServerPass('');
+      setNewServerRootFolder('');
+      setNewServerCertificate(null);
+      setNewServerPrivateKey(null);
+      setNewServerTlsEnabled(false);
       
       await fetchFtpServers();
+      await fetchRootFolders();
     } catch (error) {
-      showToast(`Sunucu oluşturma hatası: ${error.response?.data || error.message}`, 'error');
+      showToast(`Sunucu oluşturma hatası: ${getApiErrorMessage(error)}`, 'error');
     }
   };
 
@@ -464,6 +571,57 @@ function App() {
     });
   };
 
+  const openTrash = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/trash`, { headers: getFtpHeaders() });
+      setTrashItems(response.data);
+      setIsTrashOpen(true);
+    } catch (error) {
+      showToast(`Cop kutusu acilamadi: ${getApiErrorMessage(error)}`, 'error');
+    }
+  };
+
+  const restoreTrashItem = async (item) => {
+    try {
+      await axios.post(`${API_BASE_URL}/trash/${item.id}/restore`, null, { headers: getFtpHeaders() });
+      showToast(`"${item.originalPath}" geri yuklendi.`);
+      await openTrash();
+      await fetchFolder(item.originalPath.substring(0, item.originalPath.lastIndexOf('/')) || '/');
+    } catch (error) {
+      showToast(`Geri yukleme basarisiz: ${getApiErrorMessage(error)}`, 'error');
+    }
+  };
+
+  const downloadBackup = async () => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/backup`, { responseType: 'blob' });
+      const url = URL.createObjectURL(response.data);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `ftp-manager-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      showToast('Yedek indirildi.');
+    } catch (error) {
+      showToast(`Yedek alinamadi: ${getApiErrorMessage(error)}`, 'error');
+    }
+  };
+
+  const restoreBackup = (file) => {
+    requestDoubleConfirm('Yedegi Geri Yukle', 'Mevcut sunucu ve dosya verileri yedekteki durumla degistirilecek. Devam etmek istiyor musunuz?', async () => {
+      try {
+        const form = new FormData();
+        form.append('backup', file);
+        await axios.post(`${API_BASE_URL}/backup/restore`, form);
+        showToast('Yedek geri yuklendi. Sunucu listesi yenileniyor.');
+        await fetchFtpServers();
+        await fetchRootFolders();
+      } catch (error) {
+        showToast(`Yedek geri yuklenemedi: ${getApiErrorMessage(error)}`, 'error');
+      }
+    });
+  };
+
   const createFolder = async (folderName) => {
 
     const targetDirectory = getUploadTargetPath();
@@ -473,11 +631,7 @@ function App() {
     setLoading(true);
     try {
       await axios.post(`${API_BASE_URL}/create-folder?path=${encodeURIComponent(newFolderPath)}`, null, {
-        headers: { 
-          'X-FTP-Server-Id': selectedServerId,
-          'X-FTP-Username': username,
-          'X-FTP-Password': password
-        }
+        headers: getFtpHeaders()
       });
       showToast(`"${folderName}" klasörü oluşturuldu.`);
       addLog(`Klasör oluşturuldu: "${newFolderPath}"`, 'INFO', true);
@@ -501,11 +655,7 @@ function App() {
         setLoading(true);
         try {
           await axios.delete(`${API_BASE_URL}/delete?path=${encodeURIComponent(item.fullName)}&isFolder=${item.isFolder}`, {
-            headers: { 
-              'X-FTP-Server-Id': selectedServerId,
-              'X-FTP-Username': username,
-              'X-FTP-Password': password
-            }
+            headers: getFtpHeaders()
           });
           showToast(`"${item.name}" başarıyla silindi.`);
           addLog(`Öğe silindi: "${item.fullName}"`, 'WARNING', true);
@@ -546,11 +696,7 @@ function App() {
     setLoading(true);
     try {
       await axios.post(`${API_BASE_URL}/rename?sourcePath=${encodeURIComponent(item.fullName)}&targetPath=${encodeURIComponent(targetPath)}`, null, {
-        headers: { 
-          'X-FTP-Server-Id': selectedServerId,
-          'X-FTP-Username': username,
-          'X-FTP-Password': password
-        }
+        headers: getFtpHeaders()
       });
       showToast(`"${item.name}" öğesi "${finalNewName}" olarak değiştirildi.`);
       addLog(`Öğe adı değiştirildi: "${item.fullName}" -> "${targetPath}"`, 'INFO', true);
@@ -594,11 +740,7 @@ function App() {
     setLoading(true);
     try {
       await axios.post(`${API_BASE_URL}/rename?sourcePath=${encodeURIComponent(sourceItem.fullName)}&targetPath=${encodeURIComponent(targetPath)}`, null, {
-        headers: { 
-          'X-FTP-Server-Id': selectedServerId,
-          'X-FTP-Username': username,
-          'X-FTP-Password': password
-        }
+        headers: getFtpHeaders()
       });
       showToast(`"${sourceItem.name}" başarıyla "${targetFolderItem.name || targetFolderItem.fullName}" klasörüne taşındı.`);
       addLog(`Öğe taşındı: "${sourceItem.fullName}" -> "${targetPath}"`, 'INFO', true);
@@ -619,11 +761,7 @@ function App() {
     try {
       addLog(`"${item.name}" dosyası indiriliyor...`, 'INFO', false);
       const response = await axios.get(`${API_BASE_URL}/download?remotePath=${encodeURIComponent(item.fullName)}`, {
-        headers: { 
-          'X-FTP-Server-Id': selectedServerId,
-          'X-FTP-Username': username,
-          'X-FTP-Password': password
-        },
+        headers: getFtpHeaders(),
         responseType: 'blob'
       });
       
@@ -722,12 +860,7 @@ function App() {
           setUploadProgress(progress);
 
           await axios.post(`${API_BASE_URL}/upload-chunk`, formData, {
-            headers: { 
-              'Content-Type': 'multipart/form-data',
-              'X-FTP-Server-Id': selectedServerId,
-              'X-FTP-Username': username,
-              'X-FTP-Password': password
-            }
+            headers: { 'Content-Type': 'multipart/form-data', ...getFtpHeaders() }
           });
         }
 
@@ -759,12 +892,7 @@ function App() {
 
       try {
         await axios.post(`${API_BASE_URL}/upload`, formData, {
-          headers: { 
-            'Content-Type': 'multipart/form-data',
-            'X-FTP-Server-Id': selectedServerId,
-            'X-FTP-Username': username,
-            'X-FTP-Password': password
-          }
+          headers: { 'Content-Type': 'multipart/form-data', ...getFtpHeaders() }
         });
 
         showToast('Dosya başarıyla yüklendi.');
@@ -791,11 +919,7 @@ function App() {
     setLoading(true);
     try {
       await axios.post(`${API_BASE_URL}/login?username=${encodeURIComponent(username)}`, null, {
-        headers: {
-          'X-FTP-Server-Id': selectedServerId,
-          'X-FTP-Username': username,
-          'X-FTP-Password': password
-        }
+        headers: getFtpHeaders()
       });
       setIsLoggedIn(true);
       showToast('Bağlantı doğrulandı ve giriş başarılı.');
@@ -845,11 +969,7 @@ function App() {
 
     try {
       const response = await axios.get(`${API_BASE_URL}/download?remotePath=${encodeURIComponent(item.fullName)}`, {
-        headers: { 
-          'X-FTP-Server-Id': selectedServerId,
-          'X-FTP-Username': username,
-          'X-FTP-Password': password
-        },
+        headers: getFtpHeaders(),
         responseType: 'blob'
       });
 
@@ -1077,15 +1197,20 @@ function App() {
       <AccessLogin
         loginForm={loginForm}
         setLoginForm={setLoginForm}
-        handleAppLogin={handleAppLogin}
+        handleAppLogin={requiresInitialSetup ? handleInitialSetup : handleAppLogin}
         loading={loading}
         notification={notification}
+        mode={requiresInitialSetup ? 'setup' : 'login'}
       />
     );
   }
 
+  if (currentUser.mustChangePassword) {
+    return <AccessLogin loginForm={loginForm} setLoginForm={setLoginForm} handleAppLogin={handlePasswordChange} loading={loading} notification={notification} mode="change" passwordForm={passwordForm} setPasswordForm={setPasswordForm} />;
+  }
+
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-800 font-sans">
+    <div className="app-shell min-h-screen flex flex-col bg-gray-50 text-gray-800 font-sans">
       {/* Toast Notification */}
       {notification && (
         <div className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium transition-all ${
@@ -1106,7 +1231,7 @@ function App() {
       />
 
       {/* Main Workspace content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="relative z-10 flex-1 flex overflow-hidden">
         {activeView === 'explorer' ? (
           /* ================= EXPLORER VIEW ================= */
           <>
@@ -1122,6 +1247,9 @@ function App() {
               setPassword={setPassword}
               showPassword={showPassword}
               setShowPassword={setShowPassword}
+              requiresCertificate={ftpServers.find((server) => server.id === selectedServerId)?.tlsEnabled === true}
+              trustedCertificate={trustedCertificate}
+              onTrustedCertificateChange={handleTrustedCertificateChange}
               handleMockLogin={handleMockLogin}
               searchQuery={searchQuery}
               setSearchQuery={setSearchQuery}
@@ -1164,6 +1292,7 @@ function App() {
               setExpandedLogId={setExpandedLogId}
               uploadProgress={uploadProgress}
               uploadStatus={uploadStatus}
+              onOpenTrash={openTrash}
             />
 
             <PreviewPanel
@@ -1186,6 +1315,15 @@ function App() {
             setNewServerUser={setNewServerUser}
             newServerPass={newServerPass}
             setNewServerPass={setNewServerPass}
+            rootFolders={rootFolders}
+            newServerRootFolder={newServerRootFolder}
+            setNewServerRootFolder={setNewServerRootFolder}
+            newServerCertificate={newServerCertificate}
+            setNewServerCertificate={setNewServerCertificate}
+            newServerPrivateKey={newServerPrivateKey}
+            setNewServerPrivateKey={setNewServerPrivateKey}
+            newServerTlsEnabled={newServerTlsEnabled}
+            setNewServerTlsEnabled={setNewServerTlsEnabled}
             handleCreateServer={handleCreateServer}
             ftpServers={ftpServers}
             handleStartServer={handleStartServer}
@@ -1200,6 +1338,8 @@ function App() {
             sftpTunnel={sftpTunnel}
             canManageServers={hasPermission('servers.manage')}
             canViewCredentials={hasPermission('servers.credentials')}
+            onDownloadBackup={downloadBackup}
+            onRestoreBackup={restoreBackup}
           />
         ) : (
           <AccessManager
@@ -1229,6 +1369,24 @@ function App() {
       {/* Custom Double Confirmation Modal */}
       <ConfirmModal confirmModal={confirmModal} setConfirmModal={setConfirmModal} />
       <TextInputModal modal={textInputModal} onClose={closeTextInputModal} />
+      {isTrashOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between gap-4">
+              <div><h3 className="text-lg font-bold text-gray-900">Cop kutusu</h3><p className="text-xs text-gray-500">Silinen oge ozgun konumuna geri yuklenebilir.</p></div>
+              <button type="button" onClick={() => setIsTrashOpen(false)} className="rounded p-2 text-gray-500 hover:bg-gray-100"><i className="fa-solid fa-xmark"></i></button>
+            </div>
+            <div className="mt-5 space-y-2">
+              {trashItems.length === 0 ? <div className="rounded-lg bg-gray-50 p-5 text-sm text-gray-500">Cop kutusu bos.</div> : trashItems.map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3">
+                  <div className="min-w-0"><div className="truncate text-sm font-semibold text-gray-800">{item.originalPath}</div><div className="mt-1 text-xs text-gray-500">{item.isFolder ? 'Klasor' : 'Dosya'} · {new Date(item.deletedAtUtc).toLocaleString('tr-TR')}</div></div>
+                  <button type="button" onClick={() => restoreTrashItem(item)} className="shrink-0 rounded border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">Geri yukle</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
