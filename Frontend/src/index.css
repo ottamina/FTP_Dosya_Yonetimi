@@ -88,7 +88,7 @@ body { min-width: 320px; color: var(--app-ink); }
 
 /* Soften hard shadows and bright hover fills across cards/buttons. */
 .shadow-sm, .shadow-md, .shadow-lg { box-shadow: 0 14px 34px rgba(0, 0, 0, .24) !important; }
-.hover\:bg-gray-100:hover { background-color: #263244 !important; }
+.hover\:bg-gray-100:hover { background-color: #eef4f9 !important; }
 .hover\:bg-blue-100:hover { background-color: rgba(91, 156, 255, .24) !important; }
 .hover\:bg-green-50:hover, .hover\:bg-green-100:hover { background-color: rgba(70, 185, 135, .19) !important; }
 .hover\:bg-yellow-50:hover, .hover\:bg-yellow-100:hover { background-color: rgba(232, 180, 81, .22) !important; }
