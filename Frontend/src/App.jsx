@@ -85,6 +85,9 @@ function App() {
   const [activeLogTab, setActiveLogTab] = useState('file'); // 'file' or 'database'
   const [logs, setLogs] = useState([]);
   const [expandedLogId, setExpandedLogId] = useState(null);
+  const [isLogsLoading, setIsLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState('');
+  const logRequestId = useRef(0);
 
   // Toast / Status state
   const [notification, setNotification] = useState(null);
@@ -255,16 +258,27 @@ function App() {
 
   // Fetch logs from backend
   const fetchLogs = useCallback(async (tab) => {
+    const requestId = ++logRequestId.current;
     if (!appToken || !hasPermission('logs.view')) {
       setLogs([]);
+      setExpandedLogId(null);
+      setLogsError('Logları görüntüleme yetkiniz yok.');
       return;
     }
+    setIsLogsLoading(true);
+    setLogsError('');
     try {
       const endpoint = tab === 'database' ? 'logs/database' : 'logs/file';
       const response = await axios.get(`${API_BASE_URL}/${endpoint}`);
-      setLogs(response.data);
+      if (requestId !== logRequestId.current) return;
+      setLogs(Array.isArray(response.data) ? response.data : []);
+      setExpandedLogId(null);
     } catch (error) {
+      if (requestId !== logRequestId.current) return;
       console.error('Loglar çekilemedi:', error);
+      setLogsError(error.response?.data?.message || error.response?.data || error.message || 'Loglar yüklenemedi.');
+    } finally {
+      if (requestId === logRequestId.current) setIsLogsLoading(false);
     }
   }, [appToken, hasPermission]);
 
@@ -1290,6 +1304,9 @@ function App() {
               logs={logs}
               expandedLogId={expandedLogId}
               setExpandedLogId={setExpandedLogId}
+              isLoading={isLogsLoading}
+              error={logsError}
+              onRefresh={() => fetchLogs(activeLogTab)}
               uploadProgress={uploadProgress}
               uploadStatus={uploadStatus}
               onOpenTrash={openTrash}

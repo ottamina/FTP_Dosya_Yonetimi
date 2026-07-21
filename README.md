@@ -9,7 +9,7 @@ Tarayıcı üzerinden FTP sunucularını yönetmek ve dosya işlemlerini yapmak 
 - Birden fazla FTP sunucusunu ekleme, listeleme, başlatma, durdurma ve silme
 - Yerel FTP sunucusu oluşturma ve yönetme
 - Dosya ve klasör listeleme, klasör oluşturma, indirme, silme, taşıma ve yeniden adlandırma
-- Küçük dosyalar için doğrudan, büyük dosyalar için parçalara bölünmüş yükleme
+- Küçük dosyalar için doğrudan, 30 MB üzerindeki dosyalar için uyarlanabilir parçalı yükleme
 - Metin, CSV, görsel ve PDF dosyaları için önizleme
 - Dosya ağacında arama, sürükle-bırak yükleme ve yükleme ilerleme takibi
 - Dosya işlemleri ve uygulama olayları için LiteDB ve JSON tabanlı loglar
@@ -84,6 +84,10 @@ Yardımcı komutlar:
 
 UI, API, SFTP, FTP kontrol ve FTP pasif veri portları ilk başlatmada birlikte ve çakışmayacak şekilde seçilir. Seçimler `.docker/runtime.env` dosyasında yerel olarak saklanır; dosya Git'e ve Docker build context'ine eklenmez. Kaynak kod değiştiğinde `Baslat.bat` imajları yeniden derler ve yalnızca değişen servislerin container'larını yeniler; kalıcı volume'ler korunur. Ayrıntılar için [Docker Kurulum ve İşletim Rehberi](docs/07_DOCKER_KURULUMU.md) belgesine bakın.
 
+### Docker Hub veya USB paketi ile kurulum
+
+Kaynak kodu derlemeden çalıştırmak için `compose.hub.yaml` kullanılabilir. `usb-kurulum/` klasörünü uygulama paketiyle birlikte USB'ye kopyalayın; hedef bilgisayarda Docker Desktop açıkken `usb-kurulum/Baslat.bat` dosyasını çalıştırın. Yerel `ftp-manager-images.tar` arşivi varsa imajlar internetsiz yüklenir; yoksa betik Docker Hub'dan imajları indirir. Ayrıntılı seçenekler ve ortam değişkenleri için [Docker Hub Kurulum Rehberi](docs/08_DOCKER_HUB_KURULUMU.md) belgesine bakın.
+
 ### Yerel geliştirme
 
 İki terminal açın ve aşağıdaki komutları proje kök dizininden çalıştırın.
@@ -123,7 +127,8 @@ Vite tarafından gösterilen adresi açın; varsayılan adres genellikle `http:/
 2. **Sunucular** ekranından bir FTP sunucusu ekleyin veya yerel bir sunucu oluşturun.
 3. Dosya gezgininde sunucuyu seçip FTP kullanıcı bilgileriyle bağlantıyı doğrulayın.
 4. Klasörleri görüntüleyin; dosya yükleyin, indirin, önizleyin, taşıyın veya silin.
-5. Yetkili kullanıcılar, **Erişim Yönetimi** ekranında kullanıcı, rol ve izinleri düzenleyebilir.
+5. Büyük dosyalar 30 MB eşiğinin üzerinde parçalı yüklenir; 30–99 MB için 5 MB, 100–199 MB için 10 MB, 200 MB ve üzeri için 20 MB parçalar kullanılır.
+6. Yetkili kullanıcılar, **Erişim Yönetimi** ekranında kullanıcı, rol ve izinleri düzenleyebilir.
 
 ## Erişim ve izinler
 
@@ -194,6 +199,7 @@ dotnet build .\Backend\FtpManager.Api
 - `logs/`, `uploads/`, `.docker/runtime.env`, derleme klasörleri ve test dosyaları `.gitignore` ile dışarıda bırakılır; aynı yerel içerikler `.dockerignore` ile imajlara da alınmaz.
 - Docker volume'leri kalıcıdır ancak yedek değildir; önemli veriler ayrıca yedeklenmelidir.
 - FTP, şifreleri düz metinle iletebilir. İnternet üzerinden kullanım için FTPS/SFTP ve uygun ağ güvenliği tercih edilmelidir.
+- Log ekranı performans için en yeni 500 kaydı gösterir; **Yenile** düğmesi aktif sekmeyi yeniden yükler.
 
 ## Lisans
 

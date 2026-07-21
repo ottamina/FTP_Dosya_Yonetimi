@@ -9,6 +9,7 @@ namespace FtpManager.Api.Services
 {
     public class LogService : ILogService
     {
+        private const int MaxLogEntries = 500;
         private readonly string _logsDir;
         private readonly string _dbDir;
         private readonly string _jsonDir;
@@ -163,7 +164,8 @@ namespace FtpManager.Api.Services
                                 var items = col.FindAll();
                                 var fileList = new List<LogEntry>(items);
                                 fileList.Reverse(); // Newest logs first within the day
-                                list.AddRange(fileList);
+                                list.AddRange(fileList.Take(MaxLogEntries - list.Count));
+                                if (list.Count >= MaxLogEntries) break;
                             }
                         }
                     }
@@ -207,7 +209,8 @@ namespace FtpManager.Api.Services
                                 catch { }
                             }
                             fileList.Reverse(); // Newest logs first within the day
-                            list.AddRange(fileList);
+                            list.AddRange(fileList.Take(MaxLogEntries - list.Count));
+                            if (list.Count >= MaxLogEntries) break;
                         }
                     }
                     catch (Exception ex)
@@ -237,7 +240,8 @@ namespace FtpManager.Api.Services
                             var lines = File.ReadAllLines(file);
                             var fileList = new List<string>(lines);
                             fileList.Reverse(); // Newest logs first within the day
-                            list.AddRange(fileList);
+                            list.AddRange(fileList.Take(MaxLogEntries - list.Count));
+                            if (list.Count >= MaxLogEntries) break;
                         }
                     }
                     catch (Exception ex)

@@ -1,6 +1,6 @@
 
 
-function LogViewer({ activeLogTab, setActiveLogTab, logs, expandedLogId, setExpandedLogId }) {
+function LogViewer({ activeLogTab, setActiveLogTab, logs, expandedLogId, setExpandedLogId, isLoading, error, onRefresh }) {
   return (
     <div className="mt-auto border-t border-gray-200 pt-6">
       {/* Logs Tabs buttons */}
@@ -31,6 +31,16 @@ function LogViewer({ activeLogTab, setActiveLogTab, logs, expandedLogId, setExpa
           <i className="fa-solid fa-database"></i>
           Veritabanı Logları
         </button>
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="ml-auto rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-700 transition hover:bg-gray-100 disabled:cursor-wait disabled:opacity-60"
+          title="Logları yenile"
+        >
+          <i className={`fa-solid fa-rotate-right mr-1.5 ${isLoading ? 'animate-spin' : ''}`}></i>
+          Yenile
+        </button>
       </div>
 
       <h3 className="text-xl font-bold text-gray-800 my-4">
@@ -39,8 +49,10 @@ function LogViewer({ activeLogTab, setActiveLogTab, logs, expandedLogId, setExpa
 
       {/* Log Records Container */}
       <div className="border border-gray-200 rounded-lg bg-white max-h-[360px] overflow-y-auto shadow-sm flex flex-col divide-y divide-gray-100">
-        {logs.map((log) => {
-          const isExpanded = expandedLogId === log.id;
+        {logs.map((log, index) => {
+          // IDs start from 1 in each daily log file, so they repeat across days.
+          const logKey = `${log.timestamp}-${log.id}-${log.operation}-${index}`;
+          const isExpanded = expandedLogId === logKey;
           
           // Get level classes
           let badgeClass = "bg-blue-50 text-blue-600 border border-blue-200";
@@ -51,10 +63,10 @@ function LogViewer({ activeLogTab, setActiveLogTab, logs, expandedLogId, setExpa
           }
 
           return (
-            <div key={log.id} className="flex flex-col hover:bg-gray-50/20 transition">
+            <div key={logKey} className="flex flex-col hover:bg-gray-50/20 transition">
               {/* Row click header */}
               <div 
-                onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                onClick={() => setExpandedLogId(isExpanded ? null : logKey)}
                 className="flex items-center justify-between p-3.5 cursor-pointer select-none"
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -100,12 +112,25 @@ function LogViewer({ activeLogTab, setActiveLogTab, logs, expandedLogId, setExpa
           );
         })}
 
-        {logs.length === 0 && (
+        {isLoading && (
+          <div className="p-6 text-center text-sm text-gray-500">
+            <i className="fa-solid fa-spinner mr-2 animate-spin"></i>Loglar yükleniyor...
+          </div>
+        )}
+
+        {!isLoading && error && (
+          <div className="p-6 text-center text-sm text-red-600">
+            Loglar açılamadı: {error}
+          </div>
+        )}
+
+        {!isLoading && !error && logs.length === 0 && (
           <div className="text-gray-400 italic p-6 text-center text-sm">
             Herhangi bir log kaydı bulunmuyor.
           </div>
         )}
       </div>
+      <p className="mt-2 text-xs text-gray-400">Performans için en yeni 500 kayıt gösterilir.</p>
     </div>
   );
 }
