@@ -1,20 +1,23 @@
-FTP Dosya Yonetim Paneli - GitHub'siz kurulum
+FTP Dosya Yonetim Paneli - USB kurulum paketi
 
-1. Bu klasoru USB'den bilgisayarinizda kalici bir yere kopyalayin.
-   Ornek: C:\FTP-Manager
-2. Docker Desktop'u kurun ve acin.
-3. Baslat.bat dosyasina cift tiklayin. USB paketindeki yerel imaj arsivi
-   varsa internet gerekmeden yuklenir. Arsiv yoksa Docker Hub'dan indirilir.
-4. Tarayicida acilan panelde ilk yonetici hesabini olusturun.
-5. Eski verileri tasimak istiyorsaniz, once eski bilgisayardaki panelden
-   "Yedegi indir" secenegiyle ZIP dosyasini indirin. Yeni panelde
-   "Yedekten geri yukle" seceneginden bu ZIP'i yukleyin.
+Bu klasoru USB'den bilgisayarda kalici bir yere kopyalayin.
+Ornek: C:\FTP-Manager
 
-Bu klasor GitHub veya Git gerektirmez. Baslat.bat guncel Docker Hub
-imajlarini indirir ve uygulamayi baslatir.
+Gereksinim: Docker Desktop kurulu ve acik olmali.
 
-Notlar:
-- Durdur.bat sadece uygulamayi durdurur; verileri silmez.
-- Durum.bat calisan servisleri gosterir.
-- Port cakismasi olursa .env dosyasindaki portlari degistirin.
-- .env dosyasi yereldir; token veya parola varsa kimseyle paylasmayin.
+Baslatma:
+1. Baslat.bat dosyasina cift tiklayin.
+2. Betik, USB'deki uygulama imajlarini Docker'a yukler ve `docker compose up -d`
+   komutuyla uygulamayi baslatir.
+3. Panel: http://localhost:54936
+
+Komut satirindan manuel baslatmak isterseniz:
+  docker load -i ftp-manager-images.tar
+  docker compose up -d
+
+Ilk giriste yonetici hesabini olusturun.
+
+Veri notlari:
+- Durdur.bat sadece container'lari durdurur; veriler Docker volume'lerinde kalir.
+- Verileri tamamen silmek isterseniz `docker compose down -v` komutunu bilerek kullanin.
+- Port cakismasi olursa compose.yaml icindeki varsayilan portlari degistirin.

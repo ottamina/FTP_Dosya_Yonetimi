@@ -65,29 +65,28 @@ namespace FtpManager.Api.Services
             var dataDirectory = Path.Combine(chrootDirectory, DataDirectoryName);
 
             Directory.CreateDirectory(chrootDirectory);
-            Directory.CreateDirectory(dataDirectory);
-
-            foreach (var entry in Directory.EnumerateFileSystemEntries(chrootDirectory))
+            if (Directory.Exists(dataDirectory))
             {
-                if (string.Equals(entry, dataDirectory, StringComparison.OrdinalIgnoreCase))
+                // Previous releases stored FTP files below <server>/data.
+                // Move them into the server root before serving that root directly.
+                foreach (var entry in Directory.EnumerateFileSystemEntries(dataDirectory))
                 {
-                    continue;
+                    var destination = Path.Combine(chrootDirectory, Path.GetFileName(entry));
+                    if (File.Exists(destination) || Directory.Exists(destination))
+                    {
+                        throw new IOException($"Depolama gecisi tamamlanamadi; hedef zaten var: {destination}");
+                    }
+
+                    if (Directory.Exists(entry))
+                    {
+                        Directory.Move(entry, destination);
+                    }
+                    else
+                    {
+                        File.Move(entry, destination);
+                    }
                 }
 
-                var destination = Path.Combine(dataDirectory, Path.GetFileName(entry));
-                if (File.Exists(destination) || Directory.Exists(destination))
-                {
-                    throw new IOException($"Depolama gecisi tamamlanamadi; hedef zaten var: {destination}");
-                }
-
-                if (Directory.Exists(entry))
-                {
-                    Directory.Move(entry, destination);
-                }
-                else
-                {
-                    File.Move(entry, destination);
-                }
             }
 
             return (chrootDirectory, dataDirectory);
@@ -102,13 +101,7 @@ namespace FtpManager.Api.Services
 
             var root = Path.GetFullPath(baseRoot);
             var normalizedFolder = relativeFolder.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
-            // Varsayılan sunucunun kullanıcı verisi teknik olarak default/data altında
-            // tutulur. Seçicide "default" görünür; FTP kökü doğrudan veriye bağlanır.
-            if (string.Equals(normalizedFolder, "default", StringComparison.OrdinalIgnoreCase) &&
-                Directory.Exists(Path.Combine(root, "default", DataDirectoryName)))
-            {
-                normalizedFolder = Path.Combine("default", DataDirectoryName);
-            }
+            // The selected folder is used directly as the FTP root.
             var candidate = Path.GetFullPath(Path.Combine(root, normalizedFolder));
             var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar)
                 ? root

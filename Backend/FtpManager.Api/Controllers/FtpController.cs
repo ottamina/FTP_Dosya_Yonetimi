@@ -263,8 +263,10 @@ namespace FtpManager.Api.Controllers
             {
                 string decodedPath = Uri.UnescapeDataString(remotePath);
                 var stream = await _ftpService.DownloadFileAsync(decodedPath);
-                string fileName = Path.GetFileName(decodedPath);
-                return File(stream, "application/octet-stream", fileName);
+                var contentType = Path.GetExtension(decodedPath).Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                    ? "application/pdf"
+                    : "application/octet-stream";
+                return File(stream, contentType);
             }
             catch (Exception ex)
             {

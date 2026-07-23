@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 title FTP Dosya Yonetim Paneli - Durdur
 
-docker compose -f compose.hub.yaml stop
+docker compose stop
 if errorlevel 1 (
   echo Uygulama durdurulamadi. Docker Desktop'un acik oldugunu kontrol edin.
   pause

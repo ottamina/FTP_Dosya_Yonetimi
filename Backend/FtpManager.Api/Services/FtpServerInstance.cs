@@ -37,10 +37,10 @@ namespace FtpManager.Api.Services
             _config = config;
             _logger = logger;
             
-            // New servers are restricted to an existing folder chosen under ftp_root.
-            // Legacy records without a selection preserve their original storage layout.
+            // Servers without an explicit root expose their own directory directly.
+            // Selected roots remain restricted to existing folders below ftp_root.
             _ftpRoot = string.IsNullOrWhiteSpace(config.RootFolder)
-                ? ServerStorage.EnsureLayout(baseFtpRoot, config.Id).DataDirectory
+                ? ServerStorage.EnsureLayout(baseFtpRoot, config.Id).ChrootDirectory
                 : ServerStorage.ResolveExistingFolder(baseFtpRoot, config.RootFolder);
             if (config.TlsEnabled)
             {

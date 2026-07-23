@@ -1,0 +1,52 @@
+name: ftp-manager-usb
+
+services:
+  backend:
+    image: ftp-manager-usb-backend:latest
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DisableHttpsRedirection: "true"
+      FTP_MANAGER_DOCKER: "true"
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+      SFTP_PORT: ${SFTP_PORT:-42532}
+      FTP_PASSIVE_PORT_MIN: ${FTP_PASSIVE_PORT_MIN:-31320}
+      FTP_PASSIVE_PORT_MAX: ${FTP_PASSIVE_PORT_MAX:-31369}
+      Ports__FtpDefault: ${FTP_PORT_MIN:-52174}
+      Ports__FtpMin: ${FTP_PORT_MIN:-52174}
+      Ports__FtpMax: ${FTP_PORT_MAX:-52183}
+    ports:
+      - "127.0.0.1:${API_PORT:-41902}:8080"
+      - "127.0.0.1:${SFTP_PORT:-42532}:${SFTP_PORT:-42532}"
+      - "127.0.0.1:${FTP_PORT_MIN:-52174}-${FTP_PORT_MAX:-52183}:${FTP_PORT_MIN:-52174}-${FTP_PORT_MAX:-52183}"
+      - "127.0.0.1:${FTP_PASSIVE_PORT_MIN:-31320}-${FTP_PASSIVE_PORT_MAX:-31369}:${FTP_PASSIVE_PORT_MIN:-31320}-${FTP_PASSIVE_PORT_MAX:-31369}"
+    volumes:
+      - ftp_manager_logs:/app/logs
+      - ftp_manager_uploads:/app/uploads
+      - ftp_manager_ssh:/etc/ssh
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 6
+    restart: unless-stopped
+    networks: [app]
+
+  frontend:
+    image: ftp-manager-usb-frontend:latest
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${UI_PORT:-54936}:8080"
+    restart: unless-stopped
+    networks: [app]
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  ftp_manager_logs:
+  ftp_manager_uploads:
+  ftp_manager_ssh:
