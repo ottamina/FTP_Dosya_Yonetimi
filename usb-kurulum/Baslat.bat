@@ -17,28 +17,24 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if exist "ftp-manager-images.tar" (
-  echo USB'deki yerel uygulama imajlari yukleniyor...
-  docker load -i "ftp-manager-images.tar"
-  if errorlevel 1 (
-    echo Yerel imaj arsivi yuklenemedi.
-    pause
-    exit /b 1
-  )
-) else (
-  echo Uygulama imajlari Docker Hub'dan indiriliyor...
-  docker compose -f compose.hub.yaml pull
-  if errorlevel 1 (
-    echo Indirme basarisiz oldu. Internet baglantisini ve Docker Desktop'u kontrol edin.
-    pause
-    exit /b 1
-  )
+if not exist "ftp-manager-images.tar" (
+  echo ftp-manager-images.tar bulunamadi. USB paketi eksik.
+  pause
+  exit /b 1
+)
+
+echo Yerel uygulama imajlari yukleniyor...
+docker load -i "ftp-manager-images.tar"
+if errorlevel 1 (
+  echo Yerel imaj arsivi yuklenemedi.
+  pause
+  exit /b 1
 )
 
 echo Uygulama baslatiliyor...
-docker compose -f compose.hub.yaml up -d
+docker compose up -d
 if errorlevel 1 (
-  echo Uygulama baslatilamadi. Port ayarlarini .env dosyasindan kontrol edin.
+  echo Uygulama baslatilamadi. Docker Desktop'u ve port cakismalarini kontrol edin.
   pause
   exit /b 1
 )

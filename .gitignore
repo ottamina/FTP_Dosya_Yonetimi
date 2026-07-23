@@ -43,6 +43,7 @@ test_dummy.bin
 /artifacts/
 /Tests/
 /.docker/runtime.env
+/usb-kurulum/ftp-manager-images.tar
 
 # IDE / Editor Files
 .vscode/
